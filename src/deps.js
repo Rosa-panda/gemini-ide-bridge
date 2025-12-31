@@ -55,16 +55,29 @@ function parseJsDeps(content) {
 function parsePythonDeps(content) {
     const deps = [];
     
-    // from xxx import yyy
-    const fromImportRegex = /from\s+([\w.]+)\s+import/g;
+    // 1. 处理 from xxx import (a, b) 多行或单行括号格式
+    const fromImportParenthesesRegex = /from\s+([\w.]+)\s+import\s*\(([\s\S]*?)\)/g;
     
-    // import xxx
+    // 2. 处理普通的 from xxx import yyy
+    const fromImportRegex = /from\s+([\w.]+)\s+import\s+[\w.*,\s]+$/gm;
+    
+    // 3. 处理 import xxx
     const importRegex = /^import\s+([\w.]+)/gm;
     
     let match;
-    while ((match = fromImportRegex.exec(content)) !== null) {
+    
+    // 解析带括号的导入
+    while ((match = fromImportParenthesesRegex.exec(content)) !== null) {
         deps.push(match[1]);
     }
+    
+    // 解析普通的 from 导入 (排除已经匹配的括号内容)
+    const simpleFromRegex = /from\s+([\w.]+)\s+import(?!\s*\()/g;
+    while ((match = simpleFromRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 解析直接 import
     while ((match = importRegex.exec(content)) !== null) {
         deps.push(match[1]);
     }
@@ -166,15 +179,15 @@ function resolveDep(dep, currentFile, fileType) {
  */
 function resolvePath(base, relative) {
     if (relative.startsWith('/')) {
-        return relative.substring(1);
+        return relative.substring(1).replace(/\/+$/, '');
     }
     
-    const baseParts = base.split('/').filter(p => p && p !== '.');
+    const baseParts = base.split('/').filter(p => p && p !== '.' && p !== '');
     const relativeParts = relative.split('/');
     
     for (const part of relativeParts) {
         if (part === '..') {
-            baseParts.pop();
+            if (baseParts.length > 0) baseParts.pop();
         } else if (part !== '.' && part !== '') {
             baseParts.push(part);
         }

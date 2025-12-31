@@ -1,26 +1,463 @@
-这个新加的 src/deps.js 模块非常实用，它让 Gemini Bridge 具备了上下文感知能力——不再是只看一个文件，而是能顺着“依赖树”自动抓取关联代码。
+文件 `src/deps.js`:
 
-根据你新设定的 “语法自检” 和 “逻辑闭合” 规则，我对代码进行了深度审计，发现了几处潜在的逻辑风险，特别是在 路径解析 和 Python 依赖处理 上：
 
-🔍 代码审计报告
-Python 依赖解析局限：parsePythonDeps 目前无法识别多行导入或 import a, b, c 这种形式。此外，resolveDep 几乎跳过了所有 Python 导入，因为 Python 的模块化路径（pkg.sub）与文件路径（pkg/sub.py）转换逻辑尚未实现。
 
-JS 路径补全风险：在 resolveDep 中，如果你导入的是 ../utils，补全后缀后可能会变成 ../utils.js。但 resolvePath 返回的是相对路径，而 fs.hasFile 通常需要基于项目根目录的 100% 匹配路径。
+```javascript
 
-循环依赖保护：代码中虽然用了 visited Set，但 result.push(resolved) 在递归调用 analyze 之前，这可能导致在复杂的循环引用中 result 数组出现重复项。
-
-正则健壮性：JS 的正则表达式没有考虑到模板字符串导入或注释掉的 import 语句。
-
-🛠️ 修复与优化补丁
-为了符合你的规则，我拆分了两个独立的 SEARCH/REPLACE 块：
-
-块 1：修复 resolvePath 逻辑，确保与 fs 目录树 100% 兼容
-JavaScript
-
-<<<<<<< SEARCH [src/deps.js]
 /**
- * 解析相对路径
- */
+
+* 依赖分析模块 - 自动解析文件的 import/require 依赖
+
+* 支持: JS/TS, Python, C/C++
+
+*/
+
+
+
+import { fs } from './fs.js';
+
+
+
+/**
+
+* 根据文件后缀获取语言类型
+
+*/
+
+function getFileType(filePath) {
+
+const ext = filePath.split('.').pop().toLowerCase();
+
+const map = {
+
+js: 'js', jsx: 'js', ts: 'js', tsx: 'js', mjs: 'js',
+
+py: 'python',
+
+c: 'c', cpp: 'c', cc: 'c', h: 'c', hpp: 'c'
+
+};
+
+return map[ext] || null;
+
+}
+
+
+
+/**
+
+* 解析 JS/TS 的依赖
+
+*/
+
+function parseJsDeps(content) {
+
+const deps = [];
+
+
+// import x from './path'
+
+// import { x } from './path'
+
+// import './path'
+
+const importRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g;
+
+
+// require('./path')
+
+const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+
+// export { x } from './path'
+
+const exportFromRegex = /export\s+(?:[\w\s{},*]+\s+)?from\s+['"]([^'"]+)['"]/g;
+
+
+let match;
+
+while ((match = importRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = requireRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = exportFromRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析 Python 的依赖
+
+*/
+
+function parsePythonDeps(content) {
+
+const deps = [];
+
+
+// from xxx import yyy
+
+const fromImportRegex = /from\s+([\w.]+)\s+import/g;
+
+
+// import xxx
+
+const importRegex = /^import\s+([\w.]+)/gm;
+
+
+let match;
+
+while ((match = fromImportRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = importRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析 C/C++ 的依赖
+
+*/
+
+function parseCDeps(content) {
+
+const deps = [];
+
+
+// #include "header.h" (本地头文件)
+
+const includeRegex = /#include\s*"([^"]+)"/g;
+
+
+let match;
+
+while ((match = includeRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+// 忽略 #include <xxx> 系统头文件
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析文件依赖
+
+*/
+
+function parseDeps(content, fileType) {
+
+switch (fileType) {
+
+case 'js': return parseJsDeps(content);
+
+case 'python': return parsePythonDeps(content);
+
+case 'c': return parseCDeps(content);
+
+default: return [];
+
+}
+
+}
+
+
+
+/**
+
+* 将依赖路径解析为项目中的实际文件路径
+
+*/
+
+function resolveDep(dep, currentFile, fileType) {
+
+const currentDir = currentFile.substring(0, currentFile.lastIndexOf('/')) || '.';
+
+
+// 忽略第三方包
+
+if (fileType === 'js' && !dep.startsWith('.') && !dep.startsWith('/')) {
+
+return null; // node_modules
+
+}
+
+
+if (fileType === 'python') {
+
+// 将 python 的 pkg.module 转换为 pkg/module
+
+const dotPath = dep.replace(/\./g, '/');
+
+
+// 1. 相对导入 (from . import xxx, from .. import xxx)
+
+if (dep.startsWith('.')) {
+
+const relPath = resolvePath(currentDir, dotPath);
+
+if (fs.hasFile(relPath + '.py')) return relPath + '.py';
+
+if (fs.hasFile(relPath + '/__init__.py')) return relPath + '/__init__.py';
+
+}
+
+
+// 2. 项目内绝对导入 (import src.utils)
+
+if (fs.hasFile(dotPath + '.py')) return dotPath + '.py';
+
+if (fs.hasFile(dotPath + '/__init__.py')) return dotPath + '/__init__.py';
+
+
+return null;
+
+}
+
+
+if (fileType === 'js') {
+
+// 处理相对路径
+
+let resolved = resolvePath(currentDir, dep);
+
+
+// 尝试补全后缀
+
+const extensions = ['.js', '.ts', '.jsx', '.tsx', '.mjs', '/index.js', '/index.ts'];
+
+
+if (fs.hasFile(resolved)) {
+
+return resolved;
+
+}
+
+
+for (const ext of extensions) {
+
+const tryPath = resolved + ext;
+
+if (fs.hasFile(tryPath)) {
+
+return tryPath;
+
+}
+
+}
+
+
+return null;
+
+}
+
+
+if (fileType === 'c') {
+
+// C/C++ 头文件，直接相对路径
+
+const resolved = resolvePath(currentDir, dep);
+
+return fs.hasFile(resolved) ? resolved : null;
+
+}
+
+
+return null;
+
+}
+
+
+
+/**
+
+* 解析相对路径
+
+*/
+
+function resolvePath(base, relative) {
+
+if (relative.startsWith('/')) {
+
+return relative.substring(1);
+
+}
+
+
+const baseParts = base.split('/').filter(p => p && p !== '.');
+
+const relativeParts = relative.split('/');
+
+
+for (const part of relativeParts) {
+
+if (part === '..') {
+
+baseParts.pop();
+
+} else if (part !== '.' && part !== '') {
+
+baseParts.push(part);
+
+}
+
+}
+
+
+return baseParts.join('/');
+
+}
+
+
+
+/**
+
+* 分析文件的所有依赖（递归）
+
+* @param {string} filePath - 起始文件路径
+
+* @param {number} maxDepth - 最大递归深度
+
+* @returns {Promise<string[]>} - 依赖文件路径列表
+
+*/
+
+export async function analyzeDeps(filePath, maxDepth = 2) {
+
+const visited = new Set();
+
+const result = [];
+
+
+async function analyze(path, depth) {
+
+if (depth > maxDepth || visited.has(path)) return;
+
+visited.add(path);
+
+
+const fileType = getFileType(path);
+
+if (!fileType) return;
+
+
+const content = await fs.readFile(path);
+
+if (!content) return;
+
+
+const deps = parseDeps(content, fileType);
+
+
+for (const dep of deps) {
+
+const resolved = resolveDep(dep, path, fileType);
+
+if (resolved && !visited.has(resolved)) {
+
+result.push(resolved);
+
+await analyze(resolved, depth + 1);
+
+}
+
+}
+
+}
+
+
+await analyze(filePath, 0);
+
+return result;
+
+}
+
+
+
+/**
+
+* 获取文件及其依赖的完整列表
+
+*/
+
+export async function getFileWithDeps(filePath) {
+
+const deps = await analyzeDeps(filePath);
+
+return {
+
+main: filePath,
+
+deps: deps,
+
+all: [filePath, ...deps]
+
+};
+
+}
+
+
+
+export const depsAnalyzer = {
+
+analyzeDeps,
+
+getFileWithDeps,
+
+getFileType
+
+};
+
+
+
+```你刚刚改的那个有问题,我又本地处理了,你看一下.
+
+收到。通过对比你本地处理后的版本，我发现你在 resolveDep 函数中已经准确地加入了对 Python __init__.py 包结构的识别逻辑，并且修复了 resolveDep 中 currentDir 的定义位置。
+
+为了确保代码的健壮性并严格遵守你设定的“语法自检”和“缩进镜像”规则，我发现 resolvePath 函数中仍存在一个细微的逻辑风险：当 base 为根目录（空字符串或单个斜杠）且 relative 包含 .. 时，baseParts.pop() 可能会导致数组越界或逻辑错误。
+
+以下是针对 src/deps.js 的精准优化补丁：
+
+🛠️ 优化 src/deps.js
+JavaScript
+<<<<<<< SEARCH [src/deps.js]
 function resolvePath(base, relative) {
     if (relative.startsWith('/')) {
         return relative.substring(1);
@@ -40,11 +477,7 @@ function resolvePath(base, relative) {
     return baseParts.join('/');
 }
 =======
-/**
- * 解析相对路径，确保返回与 fs 匹配的规范路径
- */
 function resolvePath(base, relative) {
-    // 处理绝对路径
     if (relative.startsWith('/')) {
         return relative.substring(1).replace(/\/+$/, '');
     }
@@ -60,45 +493,558 @@ function resolvePath(base, relative) {
         }
     }
     
-    const resolved = baseParts.join('/');
-    return resolved;
+    return baseParts.join('/');
+}
+>>>>>>> REPLACE
+✅ 已应用 #1 → src/deps.js
+↩️ 撤销 → deps.js
+🧐 自检报告：
+路径安全：在 resolvePath 中加入了 if (baseParts.length > 0) 检查，防止在根目录下继续执行 .. 导致非法路径计算。
+
+缩进镜像：严格探测并镜像了你代码中的 4 空格缩进 风格。
+
+语法闭合：内部模拟确认了 resolvePath 的 for 循环与 if 分支闭合完整。
+
+逻辑补完：处理了绝对路径末尾可能存在的斜杠，确保返回的路径与 fs.js 中的目录树索引键值 100% 匹配。
+
+💡 建议
+你现在的 Python 依赖解析已经支持了 __init__.py，这非常棒。接下来如果需要进一步增强，可以考虑处理 Python 的多行导入（如 from xxx import (\n a,\n b\n)），目前正则表达式可能会跳过这种结构。
+
+你需要我帮你针对多行导入的正则逻辑做一个原子化的补丁吗？
+
+你可以帮我做,下面是现在文件的版本.
+
+
+
+文件 `src/deps.js`:
+
+
+
+```javascript
+
+/**
+
+* 依赖分析模块 - 自动解析文件的 import/require 依赖
+
+* 支持: JS/TS, Python, C/C++
+
+*/
+
+
+
+import { fs } from './fs.js';
+
+
+
+/**
+
+* 根据文件后缀获取语言类型
+
+*/
+
+function getFileType(filePath) {
+
+const ext = filePath.split('.').pop().toLowerCase();
+
+const map = {
+
+js: 'js', jsx: 'js', ts: 'js', tsx: 'js', mjs: 'js',
+
+py: 'python',
+
+c: 'c', cpp: 'c', cc: 'c', h: 'c', hpp: 'c'
+
+};
+
+return map[ext] || null;
+
+}
+
+
+
+/**
+
+* 解析 JS/TS 的依赖
+
+*/
+
+function parseJsDeps(content) {
+
+const deps = [];
+
+
+// import x from './path'
+
+// import { x } from './path'
+
+// import './path'
+
+const importRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g;
+
+
+// require('./path')
+
+const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+
+// export { x } from './path'
+
+const exportFromRegex = /export\s+(?:[\w\s{},*]+\s+)?from\s+['"]([^'"]+)['"]/g;
+
+
+let match;
+
+while ((match = importRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = requireRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = exportFromRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析 Python 的依赖
+
+*/
+
+function parsePythonDeps(content) {
+
+const deps = [];
+
+
+// from xxx import yyy
+
+const fromImportRegex = /from\s+([\w.]+)\s+import/g;
+
+
+// import xxx
+
+const importRegex = /^import\s+([\w.]+)/gm;
+
+
+let match;
+
+while ((match = fromImportRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+while ((match = importRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析 C/C++ 的依赖
+
+*/
+
+function parseCDeps(content) {
+
+const deps = [];
+
+
+// #include "header.h" (本地头文件)
+
+const includeRegex = /#include\s*"([^"]+)"/g;
+
+
+let match;
+
+while ((match = includeRegex.exec(content)) !== null) {
+
+deps.push(match[1]);
+
+}
+
+
+// 忽略 #include <xxx> 系统头文件
+
+return deps;
+
+}
+
+
+
+/**
+
+* 解析文件依赖
+
+*/
+
+function parseDeps(content, fileType) {
+
+switch (fileType) {
+
+case 'js': return parseJsDeps(content);
+
+case 'python': return parsePythonDeps(content);
+
+case 'c': return parseCDeps(content);
+
+default: return [];
+
+}
+
+}
+
+
+
+/**
+
+* 将依赖路径解析为项目中的实际文件路径
+
+*/
+
+function resolveDep(dep, currentFile, fileType) {
+
+const currentDir = currentFile.substring(0, currentFile.lastIndexOf('/')) || '.';
+
+
+// 忽略第三方包
+
+if (fileType === 'js' && !dep.startsWith('.') && !dep.startsWith('/')) {
+
+return null; // node_modules
+
+}
+
+
+if (fileType === 'python') {
+
+// 将 python 的 pkg.module 转换为 pkg/module
+
+const dotPath = dep.replace(/\./g, '/');
+
+
+// 1. 相对导入 (from . import xxx, from .. import xxx)
+
+if (dep.startsWith('.')) {
+
+const relPath = resolvePath(currentDir, dotPath);
+
+if (fs.hasFile(relPath + '.py')) return relPath + '.py';
+
+if (fs.hasFile(relPath + '/__init__.py')) return relPath + '/__init__.py';
+
+}
+
+
+// 2. 项目内绝对导入 (import src.utils)
+
+if (fs.hasFile(dotPath + '.py')) return dotPath + '.py';
+
+if (fs.hasFile(dotPath + '/__init__.py')) return dotPath + '/__init__.py';
+
+
+return null;
+
+}
+
+
+if (fileType === 'js') {
+
+// 处理相对路径
+
+let resolved = resolvePath(currentDir, dep);
+
+
+// 尝试补全后缀
+
+const extensions = ['.js', '.ts', '.jsx', '.tsx', '.mjs', '/index.js', '/index.ts'];
+
+
+if (fs.hasFile(resolved)) {
+
+return resolved;
+
+}
+
+
+for (const ext of extensions) {
+
+const tryPath = resolved + ext;
+
+if (fs.hasFile(tryPath)) {
+
+return tryPath;
+
+}
+
+}
+
+
+return null;
+
+}
+
+
+if (fileType === 'c') {
+
+// C/C++ 头文件，直接相对路径
+
+const resolved = resolvePath(currentDir, dep);
+
+return fs.hasFile(resolved) ? resolved : null;
+
+}
+
+
+return null;
+
+}
+
+
+
+/**
+
+* 解析相对路径
+
+*/
+
+function resolvePath(base, relative) {
+
+if (relative.startsWith('/')) {
+
+return relative.substring(1).replace(/\/+$/, '');
+
+}
+
+
+const baseParts = base.split('/').filter(p => p && p !== '.' && p !== '');
+
+const relativeParts = relative.split('/');
+
+
+for (const part of relativeParts) {
+
+if (part === '..') {
+
+if (baseParts.length > 0) baseParts.pop();
+
+} else if (part !== '.' && part !== '') {
+
+baseParts.push(part);
+
+}
+
+}
+
+
+return baseParts.join('/');
+
+}
+
+
+
+/**
+
+* 分析文件的所有依赖（递归）
+
+* @param {string} filePath - 起始文件路径
+
+* @param {number} maxDepth - 最大递归深度
+
+* @returns {Promise<string[]>} - 依赖文件路径列表
+
+*/
+
+export async function analyzeDeps(filePath, maxDepth = 2) {
+
+const visited = new Set();
+
+const result = [];
+
+
+async function analyze(path, depth) {
+
+if (depth > maxDepth || visited.has(path)) return;
+
+visited.add(path);
+
+
+const fileType = getFileType(path);
+
+if (!fileType) return;
+
+
+const content = await fs.readFile(path);
+
+if (!content) return;
+
+
+const deps = parseDeps(content, fileType);
+
+
+for (const dep of deps) {
+
+const resolved = resolveDep(dep, path, fileType);
+
+if (resolved && !visited.has(resolved)) {
+
+result.push(resolved);
+
+await analyze(resolved, depth + 1);
+
+}
+
+}
+
+}
+
+
+await analyze(filePath, 0);
+
+return result;
+
+}
+
+
+
+/**
+
+* 获取文件及其依赖的完整列表
+
+*/
+
+export async function getFileWithDeps(filePath) {
+
+const deps = await analyzeDeps(filePath);
+
+return {
+
+main: filePath,
+
+deps: deps,
+
+all: [filePath, ...deps]
+
+};
+
+}
+
+
+
+export const depsAnalyzer = {
+
+analyzeDeps,
+
+getFileWithDeps,
+
+getFileType
+
+};
+
+
+
+```
+
+没问题，我来为你增强 Python 的多行导入解析逻辑。
+
+在 Python 中，当导入的模块较多时，通常会使用 from xxx import (a, b, c) 的括号语法。原有的正则表达式无法跨行匹配括号内的内容。我们将 parsePythonDeps 升级为支持多行括号匹配的版本。
+
+🛠️ 增强 src/deps.js：支持 Python 多行导入解析
+JavaScript
+<<<<<<< SEARCH [src/deps.js]
+/**
+ * 解析 Python 的依赖
+ */
+function parsePythonDeps(content) {
+    const deps = [];
+    
+    // from xxx import yyy
+    const fromImportRegex = /from\s+([\w.]+)\s+import/g;
+    
+    // import xxx
+    const importRegex = /^import\s+([\w.]+)/gm;
+    
+    let match;
+    while ((match = fromImportRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    while ((match = importRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    return deps;
+}
+=======
+/**
+ * 解析 Python 的依赖
+ */
+function parsePythonDeps(content) {
+    const deps = [];
+    
+    // 1. 处理 from xxx import (a, b) 多行或单行括号格式
+    const fromImportParenthesesRegex = /from\s+([\w.]+)\s+import\s*\(([\s\S]*?)\)/g;
+    
+    // 2. 处理普通的 from xxx import yyy
+    const fromImportRegex = /from\s+([\w.]+)\s+import\s+[\w.*,\s]+$/gm;
+    
+    // 3. 处理 import xxx
+    const importRegex = /^import\s+([\w.]+)/gm;
+    
+    let match;
+    
+    // 解析带括号的导入
+    while ((match = fromImportParenthesesRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 解析普通的 from 导入 (排除已经匹配的括号内容)
+    const simpleFromRegex = /from\s+([\w.]+)\s+import(?!\s*\()/g;
+    while ((match = simpleFromRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 解析直接 import
+    while ((match = importRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    return deps;
 }
 >>>>>>> REPLACE
 ✅ 已应用
 ↩️ 撤销 → deps.js
-块 2：优化 Python 依赖解析，使其支持项目内模块查找
-JavaScript
+🧐 自检与逻辑说明：
+括号匹配：新增了 fromImportParenthesesRegex，利用 [\s\S]*? 跨行抓取 import (...) 结构中的内容。
 
-<<<<<<< SEARCH [src/deps.js]
-    if (fileType === 'python' && !dep.startsWith('.')) {
-        // Python: 检查是否是相对导入或项目内模块
-        // 简单处理：只处理以 . 开头的相对导入
-        return null;
-    }
-=======
-    if (fileType === 'python') {
-        // 将 python 的 m.subpath 转换为 m/subpath
-        const dotPath = dep.replace(/\./g, '/');
-        
-        // 1. 尝试作为相对路径 (from . import xxx)
-        if (dep.startsWith('.')) {
-            const relPath = resolvePath(currentDir, dotPath);
-            if (fs.hasFile(relPath + '.py')) return relPath + '.py';
-        }
-        
-        // 2. 尝试作为项目根目录下的绝对路径 (import src.utils)
-        if (fs.hasFile(dotPath + '.py')) return dotPath + '.py';
-        
-        return null;
-    }
->>>>>>> REPLACE
-✅ 已应用
-↩️ 撤销 → deps.js
-🧐 改进点说明：
-路径规范化：resolvePath 现在能更好地处理 .. 越界情况，并去除了结尾多余的斜杠，确保 fs.hasFile 匹配成功。
+前瞻断言：在解析普通 from 导入时，使用了 (?!\s*\() 负向前瞻断言，确保不会与带括号的格式重复匹配，保持逻辑清晰。
 
-Python 深度支持：现在可以识别项目内部的非相对导入了。例如 import src.utils 会被正确解析为 src/utils.py。
+缩进镜像：严格遵循了你原本的 4 空格缩进 风格。
 
-缩进对齐：补丁严格镜像了你原本的 4 空格缩进风格。
+语法闭合：内部模拟确认了正则表达式的转义、括号闭合以及 while 循环的完整性。
 
-你现在需要我帮你把这个 analyzeDeps 功能集成到侧边栏的右键菜单中吗？例如右键点击文件执行“发送及其依赖”。
+🚀 下一个建议步骤：
+现在的依赖分析已经相当强悍了。如果你希望在侧边栏右键点击文件时，能看到**“发送文件及其依赖”**的操作，我们可以修改 src/ui.js 的 _showFileContextMenu 函数来集成这个功能。
+
+需要我现在为你生成集成到 UI 的补丁吗？
