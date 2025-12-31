@@ -135,3 +135,34 @@ export function lineSimilarity(a, b) {
     
     return (2 * intersection) / (setA.size + setB.size);
 }
+
+/**
+ * 检查 JS/TS 代码语法是否有效
+ * 返回 { valid: boolean, error?: string }
+ */
+export function checkJsSyntax(code, filePath = '') {
+    // 只检查 JS/TS 文件
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const jsExts = ['js', 'jsx', 'ts', 'tsx', 'mjs'];
+    if (filePath && !jsExts.includes(ext)) {
+        return { valid: true }; // 非 JS 文件跳过检查
+    }
+    
+    try {
+        // 移除 ES Module 语法，因为 new Function 不支持
+        const cleanCode = code
+            .replace(/^import\s+.*$/gm, '// [import removed]')
+            .replace(/^export\s+(default\s+)?/gm, '')
+            .replace(/^export\s*\{[^}]*\}\s*(from\s*['"][^'"]+['"])?\s*;?\s*$/gm, '// [export removed]');
+        
+        new Function(cleanCode);
+        return { valid: true };
+    } catch (e) {
+        // 提取有用的错误信息
+        const match = e.message.match(/(.+)/);
+        return { 
+            valid: false, 
+            error: match ? match[1] : e.message 
+        };
+    }
+}

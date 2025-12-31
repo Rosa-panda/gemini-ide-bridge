@@ -24,16 +24,14 @@ function getFileType(filePath) {
 function parseJsDeps(content) {
     const deps = [];
     
-    // import x from './path'
-    // import { x } from './path'
-    // import './path'
-    const importRegex = /import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g;
+    // 增强版正则：支持多行导入及更复杂的 import 语法
+    const importRegex = /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
     
     // require('./path')
     const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     
     // export { x } from './path'
-    const exportFromRegex = /export\s+(?:[\w\s{},*]+\s+)?from\s+['"]([^'"]+)['"]/g;
+    const exportFromRegex = /export\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g;
     
     let match;
     while ((match = importRegex.exec(content)) !== null) {
@@ -127,20 +125,36 @@ function resolveDep(dep, currentFile, fileType) {
     }
     
     if (fileType === 'python') {
-        // 将 python 的 pkg.module 转换为 pkg/module
-        const dotPath = dep.replace(/\./g, '/');
+        // 1. 预处理：提取纯路径并处理变体
+        const isRelative = dep.startsWith('.');
+        const cleanDep = dep.replace(/^\.+/, '');
+        const dotPath = cleanDep.replace(/\./g, '/');
         
-        // 1. 相对导入 (from . import xxx, from .. import xxx)
-        if (dep.startsWith('.')) {
-            const relPath = resolvePath(currentDir, dotPath);
-            if (fs.hasFile(relPath + '.py')) return relPath + '.py';
-            if (fs.hasFile(relPath + '/__init__.py')) return relPath + '/__init__.py';
+        // 生成路径变体：test_lab -> [test_lab, test-lab]
+        const pathVariants = [dotPath];
+        if (dotPath.includes('_')) pathVariants.push(dotPath.replace(/_/g, '-'));
+
+        for (const p of pathVariants) {
+            const candidates = [];
+            if (isRelative) {
+                // 相对导入：只在当前目录下找
+                candidates.push(resolvePath(currentDir, p));
+            } else {
+                // 绝对/普通导入：先找根目录，再找当前目录（兼容性最强）
+                candidates.push(p); 
+                candidates.push(resolvePath(currentDir, p));
+            }
+
+            for (const cand of candidates) {
+                if (!cand) continue;
+                // 验证所有可能的后缀
+                const fileTry = cand + '.py';
+                const pkgTry = cand + '/__init__.py';
+                
+                if (fs.hasFile(fileTry)) return fileTry;
+                if (fs.hasFile(pkgTry)) return pkgTry;
+            }
         }
-        
-        // 2. 项目内绝对导入 (import src.utils)
-        if (fs.hasFile(dotPath + '.py')) return dotPath + '.py';
-        if (fs.hasFile(dotPath + '/__init__.py')) return dotPath + '/__init__.py';
-        
         return null;
     }
     
@@ -178,23 +192,20 @@ function resolveDep(dep, currentFile, fileType) {
  * 解析相对路径
  */
 function resolvePath(base, relative) {
-    if (relative.startsWith('/')) {
-        return relative.substring(1).replace(/\/+$/, '');
-    }
+    // 确保处理绝对路径和相对路径的一致性
+    const isAbsolute = relative.startsWith('/');
+    const parts = isAbsolute ? relative.split('/') : [...base.split('/'), ...relative.split('/')];
     
-    const baseParts = base.split('/').filter(p => p && p !== '.' && p !== '');
-    // 过滤掉 relative 中的空字符串和当前目录符号 '.'
-    const relativeParts = relative.split('/').filter(p => p && p !== '.');
-    
-    for (const part of relativeParts) {
+    const resultParts = [];
+    for (const part of parts) {
         if (part === '..') {
-            if (baseParts.length > 0) baseParts.pop();
-        } else {
-            baseParts.push(part);
+            if (resultParts.length > 0) resultParts.pop();
+        } else if (part !== '.' && part !== '') {
+            resultParts.push(part);
         }
     }
-    
-    return baseParts.join('/') || '.';
+    // 始终返回相对于项目根目录的路径，不带前导斜杠
+    return resultParts.join('/');
 }
 
 /**
@@ -222,7 +233,10 @@ export async function analyzeDeps(filePath, maxDepth = 2) {
         for (const dep of deps) {
             const resolved = resolveDep(dep, path, fileType);
             if (resolved && !visited.has(resolved)) {
-                result.push(resolved);
+                // 确保先分析子依赖，再将当前确认的依赖放入结果集，且避免重复
+                if (!result.includes(resolved)) {
+                    result.push(resolved);
+                }
                 await analyze(resolved, depth + 1);
             }
         }

@@ -6,7 +6,7 @@ import { fs } from './fs.js';
 import { showToast, getLanguage, estimateTokens, formatTokens } from './utils.js';
 import { showPreviewDialog } from './dialog.js';
 import { extractFilePath, isOverwriteMode, parseDelete, parseSearchReplace, cleanContent, parseMultipleFiles } from './parser.js';
-import { tryReplace } from './patcher.js';
+import { tryReplace, checkJsSyntax } from './patcher.js';
 import { markAsApplied, unmarkAsApplied, checkIfApplied } from './state.js';
 
 export const gemini = {
@@ -331,6 +331,16 @@ export const gemini = {
             showToast('未找到匹配内容', 'error');
             btn.textContent = '❌ 未匹配';
             btn.style.background = '#dc2626';
+            return;
+        }
+
+        // JS/TS 语法检查 - 防止 Gemini 生成的错误代码被应用
+        const syntaxCheck = checkJsSyntax(result.content, file);
+        if (!syntaxCheck.valid) {
+            showToast(`语法错误: ${syntaxCheck.error}`, 'error');
+            btn.textContent = '❌ 语法错误';
+            btn.style.background = '#dc2626';
+            console.error('[Gemini] 语法检查失败:', file, syntaxCheck.error);
             return;
         }
 
