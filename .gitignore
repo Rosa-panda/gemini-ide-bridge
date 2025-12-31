@@ -11,3 +11,7 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# 临时文件
+对话缓存
+说说说
