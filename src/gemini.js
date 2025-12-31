@@ -337,8 +337,12 @@ export const gemini = {
         // JS/TS 语法检查 - 防止 Gemini 生成的错误代码被应用
         const syntaxCheck = checkJsSyntax(result.content, file);
         if (!syntaxCheck.valid) {
-            showToast(`语法错误: ${syntaxCheck.error}`, 'error');
-            btn.textContent = '❌ 语法错误';
+            const shortError = syntaxCheck.error.length > 30 
+                ? syntaxCheck.error.slice(0, 30) + '...' 
+                : syntaxCheck.error;
+            showToast(`❌ 语法错误: ${syntaxCheck.error}`, 'error');
+            btn.textContent = `❌ ${shortError}`;
+            btn.title = `语法错误: ${syntaxCheck.error}`; // 悬停显示完整错误
             btn.style.background = '#dc2626';
             console.error('[Gemini] 语法检查失败:', file, syntaxCheck.error);
             return;

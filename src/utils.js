@@ -98,7 +98,8 @@ export function showToast(message, type = 'success') {
     // 初始位置计算
     requestAnimationFrame(() => updatePositions());
 
-    // 定时移除
+    // 定时移除 (错误类型显示更久)
+    const duration = type === 'error' ? 5000 : 3000;
     setTimeout(() => {
         // 设置缩放变量而不直接覆盖 transform
         toast.style.setProperty('--scale', '0.9');
@@ -113,5 +114,5 @@ export function showToast(message, type = 'success') {
                 updatePositions(); 
             }
         }, 400);
-    }, 3000);
+    }, duration);
 }
