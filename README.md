@@ -30,6 +30,7 @@ Gemini IDE Bridge 是一个 Chrome 扩展插件，将 Google Gemini 的 AI 对�
 | 智能匹配 | ✅ | 三层匹配：精确→模糊→相似度 |
 | 状态持久化 | ✅ | 页面刷新后保留已应用状态 |
 | 依赖分析 | ✅ | 自动解析 import/require，一键发送文件及依赖 |
+| JS 语法检查 | ✅ | 应用补丁前检查语法，防止错误代码被应用 |
 
 ---
 
@@ -163,7 +164,7 @@ gemini-ide-bridge/
 | dialog.js | ~235 | 预览对话框、历史版本对话框 |
 | theme.js | ~115 | 主题检测、CSS 变量、亮暗切换 |
 | parser.js | ~72 | 指令解析（SEARCH/REPLACE/DELETE/FILE） |
-| patcher.js | ~126 | 代码匹配算法（精确→模糊→智能相似度） |
+| patcher.js | ~126 | 代码匹配算法（精确→模糊→智能相似度）+ JS 语法检查 |
 | state.js | ~77 | 补丁状态持久化（localStorage + 文件内容双重确认） |
 | prompt.js | ~55 | 系统提示词生成 |
 | deps.js | ~180 | 依赖分析（JS/TS/Python/C/C++ import 解析） |
