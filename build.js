@@ -16,6 +16,7 @@ const files = [
     'src/patcher.js',
     'src/state.js',
     'src/prompt.js',
+    'src/deps.js',
     'src/gemini.js',
     'src/ui.js',
     'src/main.js'
