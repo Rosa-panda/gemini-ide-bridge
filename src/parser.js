@@ -84,12 +84,12 @@ export function cleanContent(text) {
 
 /**
  * 解析多个 FILE: 块（批量创建/覆盖）
- * 返回数组: [{ path, content, isOverwrite }, ...]
+ * 增强：支持 [path] 格式及特殊字符路径
  */
 export function parseMultipleFiles(text) {
     const files = [];
-    // 匹配所有 FILE: 标记的模式
-    const filePattern = /(?:\/\/|#|\/\*)\s*FILE:\s*(.+?)(?:\s*\[OVERWRITE\])?\s*(?:\*\/)?$/gm;
+    // 增强正则：支持可选的方括号包裹路径
+    const filePattern = /(?:\/\/|#|\/\*)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
     
     const matches = [];
     let match;

@@ -544,24 +544,22 @@ class UI {
             }
         }));
 
-        // 发送文件及依赖
+        // 发送文件及依赖 (集成 depsAnalyzer)
         const fileType = depsAnalyzer.getFileType(node.path);
         if (fileType) {
             menu.appendChild(this._createMenuItem('🔗 发送文件+依赖', async () => {
-                showToast('分析依赖中...', 'info');
+                showToast('正在分析依赖关系...', 'info');
                 const { all } = await depsAnalyzer.getFileWithDeps(node.path);
                 
-                if (all.length === 1) {
-                    // 没有依赖，直接发送
+                if (all.length <= 1) {
+                    // 仅主文件，调用 sendFile 保持 UI 交互一致
                     const content = await fs.readFile(node.path);
-                    if (content !== null) {
-                        gemini.sendFile(node.path, content);
-                    }
+                    if (content !== null) gemini.sendFile(node.path, content);
                     return;
                 }
                 
-                // 有依赖，打包发送
-                let text = `文件 \`${node.path}\` 及其 ${all.length - 1} 个依赖:\n\n`;
+                // 多文件打包：构造带目录层级的上下文
+                let text = `核心文件 \`${node.path}\` 及其关联依赖 (${all.length - 1} 个):\n\n`;
                 for (const filePath of all) {
                     const content = await fs.readFile(filePath);
                     if (content !== null) {
@@ -572,7 +570,7 @@ class UI {
                 
                 const result = gemini.insertToInput(text);
                 if (result.success) {
-                    showToast(`已发送 ${all.length} 个文件 (~${formatTokens(result.tokens)} tokens)`);
+                    showToast(`已发送主文件及 ${all.length - 1} 个依赖 (~${formatTokens(result.tokens)} tokens)`);
                 }
             }));
         }

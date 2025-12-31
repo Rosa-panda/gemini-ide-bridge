@@ -183,17 +183,18 @@ function resolvePath(base, relative) {
     }
     
     const baseParts = base.split('/').filter(p => p && p !== '.' && p !== '');
-    const relativeParts = relative.split('/');
+    // 过滤掉 relative 中的空字符串和当前目录符号 '.'
+    const relativeParts = relative.split('/').filter(p => p && p !== '.');
     
     for (const part of relativeParts) {
         if (part === '..') {
             if (baseParts.length > 0) baseParts.pop();
-        } else if (part !== '.' && part !== '') {
+        } else {
             baseParts.push(part);
         }
     }
     
-    return baseParts.join('/');
+    return baseParts.join('/') || '.';
 }
 
 /**
