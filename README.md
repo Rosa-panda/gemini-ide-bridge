@@ -25,10 +25,11 @@ Gemini IDE Bridge 是一个 Chrome 扩展插件，将 Google Gemini 的 AI 对�
 | 版本回退 | ✅ | IndexedDB 持久化，每文件保留 10 个版本 |
 | 修改预览 | ✅ | 应用前显示新旧对比 |
 | 撤销按钮 | ✅ | 应用后可一键撤销 |
-| 教导 AI | ✅ | 一键发送系统提示词 |
+| 提示词 | ✅ | 一键发送系统提示词 |
 | 静默刷新 | ✅ | 文件操作后自动刷新文件树 |
 | 智能匹配 | ✅ | 三层匹配：精确→模糊→相似度 |
 | 状态持久化 | ✅ | 页面刷新后保留已应用状态 |
+| 依赖分析 | ✅ | 自动解析 import/require，一键发送文件及依赖 |
 
 ---
 
@@ -51,7 +52,7 @@ Gemini IDE Bridge 是一个 Chrome 扩展插件，将 Google Gemini 的 AI 对�
 ### 文件操作
 
 - **左键点击文件**: 发送文件内容到 Gemini
-- **右键点击文件**: 历史版本、撤销、删除
+- **右键点击文件**: 历史版本、撤销、删除、发送文件+依赖
 - **右键点击文件夹**: 发送目录、新建文件、删除
 
 ---
@@ -145,6 +146,7 @@ gemini-ide-bridge/
 │   ├── parser.js      # 解析器模块（SEARCH/REPLACE/DELETE 指令解析）
 │   ├── patcher.js     # 补丁模块（代码匹配算法：精确/模糊/智能）
 │   ├── state.js       # 状态模块（已应用补丁的持久化）
+│   ├── deps.js        # 依赖分析模块（JS/Python/C++ import 解析）
 │   ├── prompt.js      # 提示词模块（系统提示词生成）
 │   └── utils.js       # 工具函数
 └── README.md
@@ -164,6 +166,7 @@ gemini-ide-bridge/
 | patcher.js | ~126 | 代码匹配算法（精确→模糊→智能相似度） |
 | state.js | ~77 | 补丁状态持久化（localStorage + 文件内容双重确认） |
 | prompt.js | ~55 | 系统提示词生成 |
+| deps.js | ~180 | 依赖分析（JS/TS/Python/C/C++ import 解析） |
 
 原 gemini.js (685行) 拆分为 gemini.js + parser.js + patcher.js + state.js，职责更清晰。
 

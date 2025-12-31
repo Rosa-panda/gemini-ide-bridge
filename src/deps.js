@@ -106,17 +106,30 @@ function parseDeps(content, fileType) {
  * 将依赖路径解析为项目中的实际文件路径
  */
 function resolveDep(dep, currentFile, fileType) {
+    const currentDir = currentFile.substring(0, currentFile.lastIndexOf('/')) || '.';
+    
     // 忽略第三方包
     if (fileType === 'js' && !dep.startsWith('.') && !dep.startsWith('/')) {
         return null; // node_modules
     }
-    if (fileType === 'python' && !dep.startsWith('.')) {
-        // Python: 检查是否是相对导入或项目内模块
-        // 简单处理：只处理以 . 开头的相对导入
+    
+    if (fileType === 'python') {
+        // 将 python 的 pkg.module 转换为 pkg/module
+        const dotPath = dep.replace(/\./g, '/');
+        
+        // 1. 相对导入 (from . import xxx, from .. import xxx)
+        if (dep.startsWith('.')) {
+            const relPath = resolvePath(currentDir, dotPath);
+            if (fs.hasFile(relPath + '.py')) return relPath + '.py';
+            if (fs.hasFile(relPath + '/__init__.py')) return relPath + '/__init__.py';
+        }
+        
+        // 2. 项目内绝对导入 (import src.utils)
+        if (fs.hasFile(dotPath + '.py')) return dotPath + '.py';
+        if (fs.hasFile(dotPath + '/__init__.py')) return dotPath + '/__init__.py';
+        
         return null;
     }
-    
-    const currentDir = currentFile.substring(0, currentFile.lastIndexOf('/')) || '.';
     
     if (fileType === 'js') {
         // 处理相对路径
