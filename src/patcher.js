@@ -178,11 +178,23 @@ export function checkJsSyntax(code, filePath = '') {
 }
 
 /**
- * 移除代码中的注释和字符串（用于括号匹配分析）
+ * 移除代码中的注释、字符串和正则表达式（用于括号匹配分析）
  */
 function stripCommentsAndStrings(code) {
     let result = '';
     let i = 0;
+    
+    // 判断当前位置的 / 是否可能是正则表达式开头
+    const canBeRegex = () => {
+        // 往前找最近的非空白字符
+        let j = result.length - 1;
+        while (j >= 0 && /\s/.test(result[j])) j--;
+        if (j < 0) return true;
+        const lastChar = result[j];
+        // 这些字符后面的 / 通常是正则
+        return /[=(:,;\[!&|?{}<>+\-*%^~]/.test(lastChar) || 
+               result.slice(Math.max(0, j - 5), j + 1).match(/return|typeof|void|delete|throw|case|in$/);
+    };
     
     while (i < code.length) {
         // 单行注释
@@ -196,6 +208,26 @@ function stripCommentsAndStrings(code) {
             i += 2;
             while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
             i += 2;
+            continue;
+        }
+        
+        // 正则表达式字面量
+        if (code[i] === '/' && code[i + 1] !== '/' && code[i + 1] !== '*' && canBeRegex()) {
+            i++; // 跳过开头的 /
+            while (i < code.length && code[i] !== '/') {
+                if (code[i] === '\\') i++; // 跳过转义
+                if (code[i] === '[') { // 字符类 [...]
+                    i++;
+                    while (i < code.length && code[i] !== ']') {
+                        if (code[i] === '\\') i++;
+                        i++;
+                    }
+                }
+                i++;
+            }
+            i++; // 跳过结尾的 /
+            // 跳过 flags (g, i, m, s, u, y)
+            while (i < code.length && /[gimsuy]/.test(code[i])) i++;
             continue;
         }
         
