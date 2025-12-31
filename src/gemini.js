@@ -34,10 +34,16 @@ export const gemini = {
         }
         
         inputEl.focus();
-        const existing = inputEl.textContent || '';
+        // 使用 execCommand 或模拟更自然的输入，确保编辑器状态同步
+        const existing = inputEl.innerText || '';
         const newContent = existing ? existing + '\n\n' + text : text;
-        inputEl.textContent = newContent;
+        
+        // 优先使用 innerText 触发编辑器的内部渲染逻辑
+        inputEl.innerText = newContent;
+        
+        // 连续发送两个事件确保编辑器感应
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
         
         const range = document.createRange();
         const sel = window.getSelection();
@@ -334,6 +340,10 @@ export const gemini = {
             return;
         }
 
+        // 临时禁用按钮，防止重复点击触发多个对话框
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+
         // JS/TS 语法检查 - 防止 Gemini 生成的错误代码被应用
         const syntaxCheck = checkJsSyntax(result.content, file);
         if (!syntaxCheck.valid) {
@@ -349,8 +359,14 @@ export const gemini = {
         }
 
         const confirmed = await showPreviewDialog(file, search, replace);
-        if (!confirmed) return;
+        if (!confirmed) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            return;
+        }
         
+        btn.disabled = false;
+        btn.style.opacity = '1';
         btn.textContent = '应用中...';
         const success = await fs.writeFile(file, result.content);
         if (success) {

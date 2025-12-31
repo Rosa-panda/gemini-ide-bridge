@@ -111,8 +111,9 @@ export function parseMultipleFiles(text) {
         // 提取当前文件块的内容
         let blockText = text.substring(current.index, nextIndex);
         // 移除 FILE: 行本身
+        // 升级为行级捕获，确保彻底抹除标记及其后的换行符
         blockText = blockText
-            .replace(/^(?:\/\/|#|\/\*)\s*FILE:\s*.+?(?:\s*\[OVERWRITE\])?\s*(?:\*\/)?\n?/m, '')
+            .replace(/^(?:\/\/|#|\/\*)\s*FILE:.*(?:\r?\n|$)/m, '')
             .trim();
         
         if (current.path && blockText) {

@@ -376,5 +376,7 @@ export function showHistoryDiff(filePath, version, currentContent) {
 
     document.body.appendChild(backdrop);
     document.body.appendChild(container);
-    backdrop.onclick = () => { backdrop.remove(); container.remove(); };
+    
+    // 防误触优化：仅允许通过显式的“关闭预览”按钮关闭，移除背景点击关闭
+    // backdrop.onclick = () => { backdrop.remove(); container.remove(); };
 }

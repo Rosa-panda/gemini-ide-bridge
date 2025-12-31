@@ -213,12 +213,17 @@ class FileSystem {
             // 递归删除
             await parentHandle.removeEntry(dirName, { recursive: true });
             
-            // 清理相关缓存
+            // 清理相关缓存 (先收集再清理，确保遍历安全)
+            const pathsToDelete = [];
             for (const [path] of this.fileHandles) {
                 if (path === dirPath || path.startsWith(dirPath + '/')) {
-                    this.fileHandles.delete(path);
-                    await history.clearFileHistory(path);
+                    pathsToDelete.push(path);
                 }
+            }
+            
+            for (const path of pathsToDelete) {
+                this.fileHandles.delete(path);
+                await history.clearFileHistory(path);
             }
             this.dirHandles.delete(dirPath);
             
@@ -233,20 +238,32 @@ class FileSystem {
         return this.fileHandles.has(filePath);
     }
 
-    generateStructure(node, indent = '') {
+    /**
+     * 生成带视觉连线的目录结构树
+     */
+    generateStructure(node, indent = '', isLast = true) {
         let result = '';
+        const marker = isLast ? '└── ' : '├── ';
         const icon = node.kind === 'directory' ? '📂' : '📄';
-        result += indent + icon + ' ' + node.name + '\n';
+        
+        result += indent + marker + icon + node.name + '\n';
+        
         if (node.kind === 'directory' && node.children) {
-            node.children.forEach(child => {
-                result += this.generateStructure(child, indent + '  ');
+            const nextIndent = indent + (isLast ? '    ' : '│   ');
+            node.children.forEach((child, index) => {
+                const lastChild = index === node.children.length - 1;
+                result += this.generateStructure(child, nextIndent, lastChild);
             });
         }
         return result;
     }
 
     generateFullStructure(tree) {
-        return tree.map(node => this.generateStructure(node)).join('');
+        // 第一层节点统一不带 marker，直接递归其子节点
+        return tree.map((node, index) => {
+            const isLast = index === tree.length - 1;
+            return this.generateStructure(node, '', isLast);
+        }).join('');
     }
 }
 

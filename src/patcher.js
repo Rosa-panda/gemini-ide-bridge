@@ -35,12 +35,16 @@ export function tryReplace(content, search, replace) {
  * 模糊匹配替换 (处理空白差异)
  */
 export function fuzzyReplace(content, search, replace) {
+    // 基础防御：Search 必须包含有效内容
+    if (!search || !search.trim()) return null;
+
     const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
     
     const normalizedContent = normalize(content);
     const normalizedSearch = normalize(search);
     
-    if (normalizedContent.includes(normalizedSearch)) {
+    // 只有在 normalizedSearch 不为空时才进行包含检查
+    if (normalizedSearch && normalizedContent.includes(normalizedSearch)) {
         const lines = content.split('\n');
         const searchLines = search.trim().split('\n');
         
@@ -92,8 +96,9 @@ function stripCommentsAndStrings(code) {
         while (j >= 0 && /\s/.test(result[j])) j--;
         if (j < 0) return true;
         const lastChar = result[j];
+        // 扩展了关键字列表，包括 yield 和 await
         return /[=(:,;\[!&|?{}<>+\-*%^~]/.test(lastChar) || 
-               result.slice(Math.max(0, j - 5), j + 1).match(/(?:return|typeof|void|delete|throw|case|in)$/);
+               result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
     };
     
     while (i < len) {

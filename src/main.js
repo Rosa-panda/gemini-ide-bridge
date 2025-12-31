@@ -25,9 +25,17 @@ import { gemini } from './gemini.js';
         observer.observe(document.body, { childList: true });
     }
 
-    if (document.body) {
+    // 确保只启动一次
+    let initialized = false;
+    function safeStart() {
+        if (initialized) return;
+        initialized = true;
         startGuardian();
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        safeStart();
     } else {
-        window.onload = startGuardian;
+        window.addEventListener('DOMContentLoaded', safeStart);
     }
 })();

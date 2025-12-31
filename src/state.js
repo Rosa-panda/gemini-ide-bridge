@@ -46,7 +46,7 @@ export function unmarkAsApplied(file, search) {
 }
 
 /**
- * 检查修改是否已应用（双重确认：localStorage + 文件内容）
+ * 检查修改是否已应用（保守策略：只信任明确的证据）
  */
 export async function checkIfApplied(file, search, replace, fsModule) {
     try {
@@ -57,25 +57,29 @@ export async function checkIfApplied(file, search, replace, fsModule) {
         if (fsModule.hasFile(file)) {
             const content = await fsModule.readFile(file);
             if (content !== null) {
-                const searchExists = content.includes(search);
-                const replaceExists = replace && content.includes(replace);
+                // 采用与 patcher.js 一致的模糊匹配逻辑
+                const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
+                const normalizedContent = normalize(content);
+                const normalizedSearch = normalize(search);
                 
-                // SEARCH 不存在 + REPLACE 存在 = 已应用
-                if (!searchExists && replaceExists) {
-                    return { applied: true, confident: true };
-                }
-                // SEARCH 存在 = 未应用
+                const searchExists = normalizedContent.includes(normalizedSearch);
+                
+                // SEARCH 存在 = 明确未应用
                 if (searchExists) {
                     return { applied: false, confident: true };
                 }
-                // 都不存在，依赖 localStorage 记录
+                
+                // SEARCH 不存在 + 有记录 = 已应用
+                // SEARCH 不存在 + 无记录 = 不确定，保守地认为未应用
+                // （避免误判：REPLACE 内容可能本来就存在于文件中）
                 if (hasRecord) {
-                    return { applied: true, confident: false };
+                    return { applied: true, confident: true };
                 }
             }
         }
         
-        return { applied: hasRecord, confident: hasRecord };
+        // 默认：未应用
+        return { applied: false, confident: false };
     } catch (e) {
         return { applied: false, confident: false };
     }

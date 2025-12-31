@@ -122,7 +122,7 @@ class FileHistory {
     }
 
     /**
-     * 清理超出限制的旧版本
+     * 清理超出限制的旧版本 (优化：使用 count 检查减少内存占用)
      */
     async _cleanOldVersions(filePath) {
         try {
@@ -131,14 +131,19 @@ class FileHistory {
             const store = tx.objectStore(STORE_NAME);
             const index = store.index('filePath');
             
-            const request = index.getAll(filePath);
-            request.onsuccess = () => {
-                const records = request.result || [];
-                if (records.length > MAX_HISTORY_PER_FILE) {
-                    // 按时间排序，删除最旧的
-                    records.sort((a, b) => a.timestamp - b.timestamp);
-                    const toDelete = records.slice(0, records.length - MAX_HISTORY_PER_FILE);
-                    toDelete.forEach(r => store.delete(r.id));
+            // 先统计数量，只有超出时才执行获取和删除
+            const countRequest = index.count(filePath);
+            countRequest.onsuccess = () => {
+                if (countRequest.result > MAX_HISTORY_PER_FILE) {
+                    const getRequest = index.getAll(filePath);
+                    getRequest.onsuccess = () => {
+                        const records = getRequest.result || [];
+                        records.sort((a, b) => a.timestamp - b.timestamp);
+                        const toDelete = records.slice(0, records.length - MAX_HISTORY_PER_FILE);
+                        const deleteTx = db.transaction(STORE_NAME, 'readwrite');
+                        const deleteStore = deleteTx.objectStore(STORE_NAME);
+                        toDelete.forEach(r => deleteStore.delete(r.id));
+                    };
                 }
             };
         } catch (err) {
