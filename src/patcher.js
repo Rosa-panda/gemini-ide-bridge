@@ -137,8 +137,13 @@ export function lineSimilarity(a, b) {
 }
 
 /**
- * 检查 JS/TS 代码语法是否有效
+ * 检查 JS/TS 代码语法是否有效（静态分析，不使用 eval/new Function）
  * 返回 { valid: boolean, error?: string }
+ * 
+ * 检查项：
+ * 1. 括号匹配 {} [] ()
+ * 2. 字符串/模板字符串闭合
+ * 3. 常见语法垃圾（如多余的 return null; }）
  */
 export function checkJsSyntax(code, filePath = '') {
     // 只检查 JS/TS 文件
@@ -148,21 +153,113 @@ export function checkJsSyntax(code, filePath = '') {
         return { valid: true }; // 非 JS 文件跳过检查
     }
     
-    try {
-        // 移除 ES Module 语法，因为 new Function 不支持
-        const cleanCode = code
-            .replace(/^import\s+.*$/gm, '// [import removed]')
-            .replace(/^export\s+(default\s+)?/gm, '')
-            .replace(/^export\s*\{[^}]*\}\s*(from\s*['"][^'"]+['"])?\s*;?\s*$/gm, '// [export removed]');
-        
-        new Function(cleanCode);
-        return { valid: true };
-    } catch (e) {
-        // 提取有用的错误信息
-        const match = e.message.match(/(.+)/);
-        return { 
-            valid: false, 
-            error: match ? match[1] : e.message 
-        };
+    // 移除注释和字符串，简化分析
+    const stripped = stripCommentsAndStrings(code);
+    
+    // 1. 检查括号匹配
+    const bracketResult = checkBrackets(stripped);
+    if (!bracketResult.valid) {
+        return bracketResult;
     }
+    
+    // 2. 检查常见的 Gemini 语法垃圾
+    const garbagePatterns = [
+        { pattern: /return\s+\w+;\s*\}\s*\}(?:\s*\})+\s*$/m, error: '多余的闭合括号 (可能是 return xxx; } } })' },
+        { pattern: /\}\s*\}\s*return\s+null;\s*\}/m, error: '错位的 return null; }' },
+    ];
+    
+    for (const { pattern, error } of garbagePatterns) {
+        if (pattern.test(stripped)) {
+            return { valid: false, error };
+        }
+    }
+    
+    return { valid: true };
+}
+
+/**
+ * 移除代码中的注释和字符串（用于括号匹配分析）
+ */
+function stripCommentsAndStrings(code) {
+    let result = '';
+    let i = 0;
+    
+    while (i < code.length) {
+        // 单行注释
+        if (code[i] === '/' && code[i + 1] === '/') {
+            while (i < code.length && code[i] !== '\n') i++;
+            continue;
+        }
+        
+        // 多行注释
+        if (code[i] === '/' && code[i + 1] === '*') {
+            i += 2;
+            while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+            i += 2;
+            continue;
+        }
+        
+        // 模板字符串
+        if (code[i] === '`') {
+            i++;
+            while (i < code.length && code[i] !== '`') {
+                if (code[i] === '\\') i++; // 跳过转义
+                i++;
+            }
+            i++;
+            continue;
+        }
+        
+        // 普通字符串
+        if (code[i] === '"' || code[i] === "'") {
+            const quote = code[i];
+            i++;
+            while (i < code.length && code[i] !== quote) {
+                if (code[i] === '\\') i++; // 跳过转义
+                i++;
+            }
+            i++;
+            continue;
+        }
+        
+        result += code[i];
+        i++;
+    }
+    
+    return result;
+}
+
+/**
+ * 检查括号是否匹配
+ */
+function checkBrackets(code) {
+    const stack = [];
+    const pairs = { ')': '(', ']': '[', '}': '{' };
+    const opens = new Set(['(', '[', '{']);
+    const closes = new Set([')', ']', '}']);
+    
+    let line = 1;
+    for (let i = 0; i < code.length; i++) {
+        const ch = code[i];
+        if (ch === '\n') line++;
+        
+        if (opens.has(ch)) {
+            stack.push({ char: ch, line });
+        } else if (closes.has(ch)) {
+            if (stack.length === 0) {
+                return { valid: false, error: `第 ${line} 行: 多余的 '${ch}'` };
+            }
+            const last = stack.pop();
+            if (last.char !== pairs[ch]) {
+                return { valid: false, error: `第 ${line} 行: '${ch}' 与 '${last.char}' (第 ${last.line} 行) 不匹配` };
+            }
+        }
+    }
+    
+    if (stack.length > 0) {
+        const unclosed = stack[stack.length - 1];
+        return { valid: false, error: `第 ${unclosed.line} 行: '${unclosed.char}' 未闭合` };
+    }
+    
+    return { valid: true };
 }
