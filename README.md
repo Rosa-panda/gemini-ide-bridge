@@ -31,7 +31,7 @@ Gemini 很强，但每次都要手动复制粘贴代码太蠢了。这个插件�
 
 1. 打开 [gemini.google.com](https://gemini.google.com)
 2. 左下角 `⚡️ IDE` → 连接文件夹
-3. `🤖 教导AI` 让 Gemini 学会协作格式
+3. `🤖 提示词` 让 Gemini 学会协作格式
 
 ## AI 协作格式
 
