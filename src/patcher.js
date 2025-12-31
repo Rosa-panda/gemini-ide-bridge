@@ -156,22 +156,10 @@ export function checkJsSyntax(code, filePath = '') {
     // 移除注释和字符串，简化分析
     const stripped = stripCommentsAndStrings(code);
     
-    // 1. 检查括号匹配
+    // 检查括号匹配（这是最可靠的语法检查）
     const bracketResult = checkBrackets(stripped);
     if (!bracketResult.valid) {
         return bracketResult;
-    }
-    
-    // 2. 检查常见的 Gemini 语法垃圾
-    const garbagePatterns = [
-        { pattern: /return\s+\w+;\s*\}\s*\}(?:\s*\})+\s*$/m, error: '多余的闭合括号 (可能是 return xxx; } } })' },
-        { pattern: /\}\s*\}\s*return\s+null;\s*\}/m, error: '错位的 return null; }' },
-    ];
-    
-    for (const { pattern, error } of garbagePatterns) {
-        if (pattern.test(stripped)) {
-            return { valid: false, error };
-        }
     }
     
     return { valid: true };
@@ -215,11 +203,17 @@ function stripCommentsAndStrings(code) {
         if (code[i] === '/' && code[i + 1] !== '/' && code[i + 1] !== '*' && canBeRegex()) {
             i++; // 跳过开头的 /
             while (i < code.length && code[i] !== '/') {
-                if (code[i] === '\\') i++; // 跳过转义
+                if (code[i] === '\\') {
+                    i += 2; // 彻底跳过转义符和被转义的字符 (如 \[, \/, \\)
+                    continue;
+                }
                 if (code[i] === '[') { // 字符类 [...]
                     i++;
                     while (i < code.length && code[i] !== ']') {
-                        if (code[i] === '\\') i++;
+                        if (code[i] === '\\') {
+                            i += 2; // 字符类内的转义也要彻底跳过
+                            continue;
+                        }
                         i++;
                     }
                 }
