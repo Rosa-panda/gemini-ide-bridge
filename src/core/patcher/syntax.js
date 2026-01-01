@@ -17,11 +17,19 @@ export function checkJsSyntax(code, filePath = '') {
 
 /**
  * 移除代码中的注释、字符串和正则表达式
+ * 支持嵌套模板字符串的正确解析
  */
 function stripCommentsAndStrings(code) {
     let result = '';
     let i = 0;
     const len = code.length;
+    
+    // 状态栈：追踪模板字符串嵌套
+    // 'T' = 在模板字符串文本中, 'I' = 在插值表达式中
+    const stack = [];
+    
+    // 美元符号的字符码，避免直接写 '$' 被某些工具误处理
+    const DOLLAR = String.fromCharCode(36);
     
     const canBeRegex = () => {
         let j = result.length - 1;
@@ -35,7 +43,39 @@ function stripCommentsAndStrings(code) {
     while (i < len) {
         const char = code[i];
         const next = code[i + 1];
+        const inTemplate = stack.length > 0 && stack[stack.length - 1] === 'T';
+        
+        // 1. 在模板字符串文本区域
+        if (inTemplate) {
+            if (char === '`') {
+                // 模板字符串结束
+                stack.pop();
+                i++;
+            } else if (char === DOLLAR && next === '{') {
+                // 进入插值表达式
+                stack.push('I');
+                result += '{';  // 保留 { 给括号检查
+                i += 2;
+            } else if (char === '\\') {
+                // 转义字符，跳过两个
+                i += 2;
+            } else {
+                // 普通模板文本，忽略
+                i++;
+            }
+            continue;
+        }
+        
+        // 2. 在插值表达式中遇到 }
+        if (char === '}' && stack.length > 0 && stack[stack.length - 1] === 'I') {
+            stack.pop();  // 退出插值，回到模板文本
+            result += '}';
+            i++;
+            continue;
+        }
 
+        // 3. 以下是普通代码模式（顶层或插值内部）
+        
         // 单行注释
         if (char === '/' && next === '/') {
             i += 2;
@@ -68,14 +108,21 @@ function stripCommentsAndStrings(code) {
             continue;
         }
         
-        // 字符串
-        if (char === '"' || char === "'" || char === '`') {
+        // 普通字符串（单引号、双引号）
+        if (char === '"' || char === "'") {
             const quote = char;
             i++;
             while (i < len && code[i] !== quote) {
                 if (code[i] === '\\') i++;
                 i++;
             }
+            i++;
+            continue;
+        }
+        
+        // 模板字符串开始
+        if (char === '`') {
+            stack.push('T');
             i++;
             continue;
         }
