@@ -6,7 +6,7 @@ import { fs } from '../core/fs.js';
 import { gemini } from '../gemini/index.js';
 import { getSystemPrompt } from '../shared/prompt.js';
 import { showToast, formatTokens } from '../shared/utils.js';
-import { initThemeStyle, updateTheme } from '../shared/theme.js';
+import { initThemeStyle, initThemeWatcher } from '../shared/theme.js';
 import { createTrigger, createSidebar, createEmptyState, createContextMenu, createButton } from './sidebar.js';
 import { renderTree, filterTree } from './tree.js';
 
@@ -33,7 +33,7 @@ class UI {
 
         document.body.appendChild(root);
         
-        setInterval(() => updateTheme(), 2000);
+        initThemeWatcher();
         
         document.addEventListener('click', () => {
             const menu = document.getElementById('ide-context-menu');

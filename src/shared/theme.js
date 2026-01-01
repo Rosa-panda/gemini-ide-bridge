@@ -118,3 +118,46 @@ export function initThemeStyle() {
     style.textContent = getThemeCSS(detectTheme());
     return style;
 }
+
+/**
+ * 初始化主题监听器
+ * - MutationObserver 监听 body 的 style/class 变化
+ * - matchMedia 监听系统主题偏好变化
+ * - 轮询作为 fallback（10秒一次）
+ */
+export function initThemeWatcher() {
+    // 1. MutationObserver 监听 body 变化
+    const observer = new MutationObserver(() => {
+        updateTheme();
+    });
+    
+    observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['style', 'class', 'data-theme']
+    });
+
+    // 2. 监听系统主题偏好变化
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleMediaChange = () => updateTheme();
+    
+    if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handleMediaChange);
+    } else {
+        // 兼容旧浏览器
+        mediaQuery.addListener(handleMediaChange);
+    }
+
+    // 3. Fallback 轮询（某些情况下 MutationObserver 可能不触发）
+    const fallbackInterval = setInterval(() => updateTheme(), 10000);
+
+    // 返回清理函数
+    return () => {
+        observer.disconnect();
+        if (mediaQuery.removeEventListener) {
+            mediaQuery.removeEventListener('change', handleMediaChange);
+        } else {
+            mediaQuery.removeListener(handleMediaChange);
+        }
+        clearInterval(fallbackInterval);
+    };
+}
