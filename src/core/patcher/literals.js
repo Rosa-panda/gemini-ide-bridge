@@ -31,7 +31,7 @@ export function extractLiterals(code) {
             }
             
             const literal = code.slice(start, i);
-            const placeholder = `__LITERAL_${counter++}__`;
+            const placeholder = '__LITERAL_' + counter++ + '__';
             literals.set(placeholder, literal);
             result += placeholder;
             continue;
@@ -50,6 +50,7 @@ export function extractLiterals(code) {
                     i += 2;
                     continue;
                 }
+                // 检测 ${
                 if (code[i] === '$' && code[i + 1] === '{') {
                     depth++;
                     i += 2;
@@ -72,7 +73,7 @@ export function extractLiterals(code) {
             
             const literal = code.slice(start, i);
             if (hasNewline) {
-                const placeholder = `__LITERAL_${counter++}__`;
+                const placeholder = '__LITERAL_' + counter++ + '__';
                 literals.set(placeholder, literal);
                 result += placeholder;
             } else {
