@@ -64,30 +64,52 @@ ${numberedContext}
 
 /**
  * 语法检查失败时，发送错误详情给 AI
+ * 注意：语法检查是针对应用补丁后的完整文件，不是单独的 REPLACE 块
  */
-export function buildSyntaxErrorContext(filePath, error, searchBlock, replaceBlock) {
+export function buildSyntaxErrorContext(filePath, error, searchBlock, replaceBlock, patchedContent) {
     const lang = getLanguage(filePath);
     
+    // 提取错误行号
     const lineMatch = error.match(/第 (\d+) 行/);
     const errorLine = lineMatch ? parseInt(lineMatch[1]) : -1;
     
-    const replaceLines = replaceBlock.split('\n');
-    const numberedReplace = replaceLines.map((line, i) => {
-        const lineNum = String(i + 1).padStart(3);
-        const marker = (i + 1 === errorLine) ? ' >>> ' : '     ';
-        return `${lineNum}${marker}${line}`;
-    }).join('\n');
+    // 如果有完整的补丁后内容，展示错误位置附近的代码
+    let contextSection = '';
+    if (patchedContent && errorLine > 0) {
+        const lines = patchedContent.split('\n');
+        const start = Math.max(0, errorLine - 5);
+        const end = Math.min(lines.length, errorLine + 5);
+        const contextLines = lines.slice(start, end).map((line, i) => {
+            const lineNum = start + i + 1;
+            const marker = lineNum === errorLine ? ' >>> ' : '     ';
+            return `${String(lineNum).padStart(4)}${marker}${line}`;
+        }).join('\n');
+        
+        contextSection = `
+**应用补丁后的文件（错误位置附近）：**
+\`\`\`${lang}
+${contextLines}
+\`\`\`
+`;
+    }
     
     return `❌ **语法检查失败** - \`${filePath}\`
 
 **错误信息：** ${error}
 
-**你提供的 REPLACE 块（已标注行号，>>> 标记出错行）：**
+**说明：** 语法检查是针对应用补丁后的完整文件进行的，不是单独检查 REPLACE 块。
+${contextSection}
+**你提供的 SEARCH 块：**
 \`\`\`${lang}
-${numberedReplace}
+${searchBlock}
 \`\`\`
 
-请检查第 ${errorLine > 0 ? errorLine : '?'} 行附近的语法错误（括号是否匹配、是否有多余或缺失的符号），然后重新生成正确的补丁。`;
+**你提供的 REPLACE 块：**
+\`\`\`${lang}
+${replaceBlock}
+\`\`\`
+
+请检查 REPLACE 块是否会导致文件语法错误（括号不匹配、语句不完整等），然后重新生成正确的补丁。`;
 }
 
 /**

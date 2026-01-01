@@ -124,7 +124,8 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         btn.disabled = false;
         btn.style.opacity = '1';
         
-        insertToInput(buildSyntaxErrorContext(file, syntaxCheck.error, search, replace));
+        // 传递完整的补丁后内容，让反馈更准确
+        insertToInput(buildSyntaxErrorContext(file, syntaxCheck.error, search, replace, result.content));
         return;
     }
 
