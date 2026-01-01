@@ -140,18 +140,15 @@ export function restoreLineEnding(content, originalEnding) {
 /**
 * 计算 SEARCH 块在文件中的匹配次数
 * 使用深度标准化进行匹配（忽略缩进差异）
-* [DEBUG] 增加了控制台日志以便排查唯一性检测失效问题
 */
 function countMatches(content, search) {
-    // 增强的深度标准化：
-    // 1. 统一换行符
-    // 2. 移除每行开头和结尾的所有空白字符 (trim)
-    // 3. 移除空行，避免空行干扰匹配逻辑
+    // 深度标准化：统一换行符、trim 每行、过滤空行
     const deepNormalize = (s) => {
-            return s.replace(/\r\n/g, '\n')
-                    .split('\n')
-                    .map(line => line.trim())
-                    .join('\n'); // 保持换行结构，但每行内容都已 Clean
+        return s.replace(/\r\n/g, '\n')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line) // 过滤空行！
+            .join('\n');
     };
     
     const normalizedContent = deepNormalize(content);
@@ -161,28 +158,33 @@ function countMatches(content, search) {
     
     // 按行匹配计数
     const contentLines = normalizedContent.split('\n');
-    const searchLines = normalizedSearch.split('\n'); // Search 已经 trim 过了，不需要再次 trim
+    const searchLines = normalizedSearch.split('\n');
     
-    // [DEBUG LOGS] - 请在控制台查看这些输出
-    console.log('[Patcher Debug] Search Lines:', searchLines);
-    // 截取 contentLines 前几行打印，避免刷屏
-    // console.log('[Patcher Debug] Content Lines Preview:', contentLines.slice(0, 20));
-
+    // 如果 SEARCH 只有一行，直接计数该行在文件中出现的次数
+    if (searchLines.length === 1) {
+        const target = searchLines[0];
+        let count = 0;
+        for (const line of contentLines) {
+            if (line === target) count++;
+        }
+        console.log(`[Patcher Debug] Single-line search "${target}" found ${count} times`);
+        return count;
+    }
+    
+    // 多行 SEARCH：按连续行匹配
     let count = 0;
-    // 修正：确保 i 能遍历到最后一个可能的匹配位置
     for (let i = 0; i <= contentLines.length - searchLines.length; i++) {
-            let match = true;
-            for (let j = 0; j < searchLines.length; j++) {
-                // 因为 deepNormalize 已经 trim 过了，这里直接比较
-                if (contentLines[i + j] !== searchLines[j]) {
-                    match = false;
-                    break;
-                }
+        let match = true;
+        for (let j = 0; j < searchLines.length; j++) {
+            if (contentLines[i + j] !== searchLines[j]) {
+                match = false;
+                break;
             }
-            if (match) {
-                count++;
-                console.log(`[Patcher Debug] Found match #${count} at line index ${i}`);
-            }
+        }
+        if (match) {
+            count++;
+            console.log(`[Patcher Debug] Multi-line match #${count} at line index ${i}`);
+        }
     }
     
     console.log(`[Patcher Debug] Total matches found: ${count}`);

@@ -367,7 +367,7 @@ export const gemini = {
             return;
         }
 
-        const confirmed = await showPreviewDialog(file, search, replace);
+        const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1);
         if (!confirmed) {
             btn.disabled = false;
             btn.style.opacity = '1';
