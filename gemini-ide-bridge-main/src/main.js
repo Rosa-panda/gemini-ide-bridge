@@ -1,17 +1,19 @@
 /**
  * Gemini IDE Bridge - 入口文件
- * V2.0.0 模块化重构版
+ * V1.0.0 模块化重构版
  */
 
-import { fs } from './core/fs.js';
-import { ui } from './ui/index.js';
-import { gemini } from './gemini/index.js';
+import { fs } from './fs.js';
+import { ui } from './ui.js';
+import { gemini } from './gemini.js';
 
 (function() {
-    console.log('%c[IDE Bridge] V2.0.0 启动', 'color: #00ff00; font-size: 14px; font-weight: bold;');
+    console.log('%c[IDE Bridge] V1.0.0 启动', 'color: #00ff00; font-size: 14px; font-weight: bold;');
 
+    // 暴露到全局方便调试
     window.IDE_BRIDGE = { fs, ui, gemini };
 
+    // 守护进程
     function startGuardian() {
         ui.init();
         
@@ -23,6 +25,7 @@ import { gemini } from './gemini/index.js';
         observer.observe(document.body, { childList: true });
     }
 
+    // 确保只启动一次
     let initialized = false;
     function safeStart() {
         if (initialized) return;

@@ -73,22 +73,11 @@ class FileSystem {
         if (!handle) return null;
         try {
             const file = await handle.getFile();
-            const content = await file.text();
-            // 记录原始换行符风格（供后续写入时恢复）
-            this._lineEndings = this._lineEndings || new Map();
-            this._lineEndings.set(filePath, content.includes('\r\n') ? '\r\n' : '\n');
-            return content;
+            return await file.text();
         } catch (err) {
             console.error('[FS] 读取失败:', filePath, err);
             return null;
         }
-    }
-
-    /**
-     * 获取文件的原始换行符风格
-     */
-    getLineEnding(filePath) {
-        return this._lineEndings?.get(filePath) || '\n';
     }
 
     async writeFile(filePath, content, saveHistory = true) {

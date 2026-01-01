@@ -1,0 +1,17 @@
+# 构建产物
+ide_core.js
+
+# 测试目录
+test-lab/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# 临时文件
+对话缓存
+说说说

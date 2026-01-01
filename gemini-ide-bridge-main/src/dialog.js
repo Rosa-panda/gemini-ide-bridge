@@ -20,12 +20,8 @@ function formatSize(bytes) {
 
 /**
  * 显示预览对话框 (变更确认)
- * @param {string} file - 文件路径
- * @param {string} oldText - SEARCH 块内容
- * @param {string} newText - REPLACE 块内容
- * @param {number} startLine - 匹配位置的起始行号（文件中的实际行号）
  */
-export function showPreviewDialog(file, oldText, newText, startLine = 1) {
+export function showPreviewDialog(file, oldText, newText) {
     return new Promise((resolve) => {
         // 1. 创建遮罩层
         const backdrop = document.createElement('div');
@@ -85,8 +81,8 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1) {
             minHeight: '0'
         });
 
-        // 辅助函数：创建带行号的代码面板
-        const createPane = (content, type, lineStart) => {
+        // 辅助函数：创建代码面板
+        const createPane = (content, type) => {
             const pane = document.createElement('div');
             Object.assign(pane.style, {
                 flex: '1', display: 'flex', flexDirection: 'column',
@@ -94,8 +90,8 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1) {
                 overflow: 'hidden', background: 'var(--ide-hint-bg)'
             });
 
-            const isAdd = type === 'add';
             const paneHeader = document.createElement('div');
+            const isAdd = type === 'add';
             paneHeader.textContent = isAdd ? '🟢 REPLACE (新增/修改)' : '🔴 SEARCH (原始/删除)';
             Object.assign(paneHeader.style, {
                 padding: '10px 16px', fontSize: '12px', fontWeight: 'bold',
@@ -104,56 +100,23 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1) {
                 borderBottom: '1px solid var(--ide-border)'
             });
 
-            // 代码区域容器（包含行号和代码）
-            const codeContainer = document.createElement('div');
-            Object.assign(codeContainer.style, {
-                flex: '1', display: 'flex', overflow: 'auto',
-                fontFamily: '"JetBrains Mono", Consolas, monospace',
-                fontSize: '13px', lineHeight: '1.6'
-            });
-
-            // 行号列
-            const lineNumbers = document.createElement('div');
-            Object.assign(lineNumbers.style, {
-                padding: '16px 12px 16px 16px',
-                textAlign: 'right',
-                color: 'var(--ide-text-secondary)',
-                userSelect: 'none',
-                borderRight: '1px solid var(--ide-border)',
-                background: 'rgba(0, 0, 0, 0.1)',
-                minWidth: '50px'
-            });
-
-            // 代码列
             const codeArea = document.createElement('pre');
+            codeArea.textContent = content;
             Object.assign(codeArea.style, {
                 flex: '1', margin: '0', padding: '16px',
-                overflow: 'visible', color: 'var(--ide-text)',
+                overflow: 'auto', fontSize: '13px', lineHeight: '1.6',
+                fontFamily: '"JetBrains Mono", Consolas, monospace',
+                color: 'var(--ide-text)',
                 whiteSpace: 'pre'
             });
 
-            // 生成行号和代码
-            const lines = content.split('\n');
-            // 使用 DOM 操作代替 innerHTML（绕过 Trusted Types 限制）
-            lines.forEach((_, i) => {
-                const lineNumDiv = document.createElement('div');
-                lineNumDiv.textContent = String(lineStart + i);
-                lineNumbers.appendChild(lineNumDiv);
-            });
-            codeArea.textContent = content;
-
-            codeContainer.appendChild(lineNumbers);
-            codeContainer.appendChild(codeArea);
-
             pane.appendChild(paneHeader);
-            pane.appendChild(codeContainer);
+            pane.appendChild(codeArea);
             return pane;
         };
 
-        // SEARCH 面板：使用传入的起始行号
-        // REPLACE 面板：也使用相同的起始行号（因为替换后位置相同）
-        diffBody.appendChild(createPane(oldText, 'del', startLine));
-        diffBody.appendChild(createPane(newText, 'add', startLine));
+        diffBody.appendChild(createPane(oldText, 'del'));
+        diffBody.appendChild(createPane(newText, 'add'));
 
         // 5. 底部按钮区
         const footer = document.createElement('div');

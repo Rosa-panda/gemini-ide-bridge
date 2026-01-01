@@ -2,20 +2,17 @@
  * 主题模块 - 检测和管理主题样式
  */
 
-// 检测当前页面是亮色还是暗色主题
 export function detectTheme() {
     const bg = getComputedStyle(document.body).backgroundColor;
     const match = bg.match(/\d+/g);
     if (match) {
         const [r, g, b] = match.map(Number);
-        // 计算亮度，亮度低于 128 认为是暗色主题
         const brightness = (r * 299 + g * 587 + b * 114) / 1000;
         return brightness < 128 ? 'dark' : 'light';
     }
-    return 'dark'; // 默认暗色
+    return 'dark';
 }
 
-// 生成主题 CSS
 export function getThemeCSS(theme) {
     const common = `
         .ide-glass { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
@@ -26,19 +23,16 @@ export function getThemeCSS(theme) {
         #ide-tree-container::-webkit-scrollbar-thumb { background: var(--ide-border); border-radius: 2px; }
         .ide-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
         
-        /* 弹窗动画 */
         @keyframes ideFadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes ideScaleIn { from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 
-        /* 搜索高亮 */
         .ide-highlight {
-            background: rgba(255, 255, 0, 0.3); /* 半透明黄色用于强调 */
-            color: inherit; /* 继承原有文字颜色 */
+            background: rgba(255, 255, 0, 0.3);
+            color: inherit;
             border-radius: 2px;
             font-weight: bold;
         }
 
-        /* 工具栏按钮 */
         .ide-btn {
             background: transparent;
             color: var(--ide-text);
@@ -107,7 +101,6 @@ export function getThemeCSS(theme) {
     `;
 }
 
-// 更新主题样式
 export function updateTheme() {
     const style = document.getElementById('ide-theme-style');
     if (style) {
@@ -119,7 +112,6 @@ export function updateTheme() {
     }
 }
 
-// 初始化主题样式元素
 export function initThemeStyle() {
     const style = document.createElement('style');
     style.id = 'ide-theme-style';
