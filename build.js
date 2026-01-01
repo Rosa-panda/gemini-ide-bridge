@@ -52,7 +52,7 @@ const files = [
 ];
 
 let output = `/**
- * Gemini IDE Bridge Core (V2.0.0)
+ * Gemini IDE Bridge Core (V0.0.1)
  * 自动构建于 ${new Date().toISOString()}
  */
 
@@ -87,7 +87,7 @@ if (document.body) {
 }
 
 window.IDE_BRIDGE = { fs, ui, gemini };
-console.log('%c[IDE Bridge] V2.0.0', 'color: #00ff00; font-size: 14px;');
+console.log('%c[IDE Bridge] V0.0.1', 'color: #00ff00; font-size: 14px;');
 
 })();
 `;
