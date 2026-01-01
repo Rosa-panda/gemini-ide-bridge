@@ -112,8 +112,20 @@ function buildTreeNodes(container, nodes, level, folderStates, currentTree, matc
             item.appendChild(icon);
             item.appendChild(name);
             
-            item.onclick = () => {
-                folderStates.set(node.path, !isExpanded);
+            item.onclick = async () => {
+                const willExpand = !isExpanded;
+                
+                // 懒加载核心：如果准备展开且子节点为空，则去读取
+                if (willExpand && (!node.children || node.children.length === 0)) {
+                    item.style.opacity = '0.5';
+                    const children = await fs.readDirectory(node.path);
+                    if (children) {
+                        node.children = children;
+                    }
+                    item.style.opacity = '1';
+                }
+
+                folderStates.set(node.path, willExpand);
                 renderTree(container, currentTree, folderStates, currentTree);
             };
             

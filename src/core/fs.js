@@ -35,7 +35,8 @@ class FileSystem {
         try {
             this.fileHandles.clear();
             this.dirHandles.clear();
-            const tree = await this._scanDir(this.rootHandle);
+            // 默认只扫描第一层
+            const tree = await this._scanDir(this.rootHandle, '', false);
             return { success: true, rootName: this.rootHandle.name, tree };
         } catch (err) {
             console.error('[FS] 刷新失败:', err);
@@ -43,7 +44,13 @@ class FileSystem {
         }
     }
 
-    async _scanDir(dirHandle, path = '') {
+    async readDirectory(path) {
+        const handle = this.dirHandles.get(path);
+        if (!handle) return null;
+        return await this._scanDir(handle, path, false);
+    }
+
+    async _scanDir(dirHandle, path = '', recursive = true) {
         const entries = [];
         this.dirHandles.set(path || '.', dirHandle);
         
@@ -55,9 +62,12 @@ class FileSystem {
                 this.fileHandles.set(relPath, entry);
                 entries.push({ name: entry.name, kind: 'file', path: relPath });
             } else if (entry.kind === 'directory') {
+                // 记录目录句柄，方便后续懒加载
+                this.dirHandles.set(relPath, entry);
                 entries.push({
                     name: entry.name, kind: 'directory', path: relPath,
-                    children: await this._scanDir(entry, relPath)
+                    // 如果不是递归模式，初始化为空数组，标记为待加载
+                    children: recursive ? await this._scanDir(entry, relPath) : []
                 });
             }
         }
