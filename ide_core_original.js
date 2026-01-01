@@ -1,0 +1,3009 @@
+/**
+ * Gemini IDE Bridge Core (V1.0.0)
+ * 自动构建于 2026-01-01T11:48:14.261Z
+ */
+
+(function() {
+'use strict';
+
+// ========== src/utils.js ==========
+/**
+ * 工具函数模块
+ */
+
+function getLanguage(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const map = {
+        js: 'javascript', ts: 'typescript', jsx: 'jsx', tsx: 'tsx',
+        py: 'python', java: 'java', cpp: 'cpp', c: 'c', go: 'go',
+        rs: 'rust', rb: 'ruby', php: 'php', html: 'html', css: 'css',
+        json: 'json', yaml: 'yaml', yml: 'yaml', md: 'markdown',
+        sql: 'sql', sh: 'bash', vue: 'vue', svelte: 'svelte'
+    };
+    return map[ext] || 'text';
+}
+
+/**
+ * 估算文本的 token 数量
+ * 规则：英文 ~4字符/token，中文 ~1.5字符/token，代码 ~3字符/token
+ */
+function estimateTokens(text) {
+    if (!text) return 0;
+    
+    // 分离中文和非中文
+    const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const otherChars = text.length - chineseChars;
+    
+    // 中文约 1.5 字符/token，其他约 3.5 字符/token（代码偏多）
+    const tokens = Math.ceil(chineseChars / 1.5 + otherChars / 3.5);
+    return tokens;
+}
+
+/**
+ * 格式化 token 数量显示
+ */
+function formatTokens(count) {
+    if (count >= 1000) {
+        return (count / 1000).toFixed(1) + 'k';
+    }
+    return count.toString();
+}
+
+// 存储当前活跃的 toast 元素
+let activeToasts = [];
+
+function showToast(message, type = 'success') {
+    const MAX_TOASTS = 5;
+    const TOAST_GAP = 12; // toast 之间的间距
+    
+    // 如果超过最大数量，移除最旧的一个
+    if (activeToasts.length >= MAX_TOASTS) {
+        const oldest = activeToasts.shift();
+        if (oldest) {
+            oldest.style.opacity = '0';
+            oldest.style.transform = `translateY(-20px)`;
+            setTimeout(() => oldest.remove(), 300);
+        }
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'ide-toast-item';
+    toast.textContent = message;
+    
+    const bgColor = type === 'success' ? '#059669' : type === 'error' ? '#dc2626' : '#2563eb';
+    
+    Object.assign(toast.style, {
+        position: 'fixed', 
+        left: '30px',
+        bottom: '80px', // 基础起始位置
+        background: bgColor, 
+        color: 'white', 
+        padding: '10px 20px',
+        borderRadius: '8px', 
+        fontSize: '13px', 
+        fontWeight: 'bold',
+        zIndex: '2147483647', 
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        transition: 'all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)',
+        opacity: '0',
+        transform: 'translateY(20px)'
+    });
+
+    document.body.appendChild(toast);
+    activeToasts.push(toast);
+
+    // 重新计算所有 toast 的位置 (使用 CSS 变量避免 transform 冲突)
+    const updatePositions = () => {
+        activeToasts.forEach((el, index) => {
+            // 越新的 (index 越大) 越在下面
+            const offset = (activeToasts.length - 1 - index) * (45 + TOAST_GAP); // 使用固定高度或 offsetHeight
+            el.style.setProperty('--offset', `-${offset}px`);
+            el.style.opacity = '1';
+            // 统一 transform 逻辑
+            el.style.transform = `translateY(var(--offset)) scale(var(--scale, 1))`;
+        });
+    };
+
+    // 初始位置计算
+    requestAnimationFrame(() => updatePositions());
+
+    // 定时移除 (错误类型显示更久)
+    const duration = type === 'error' ? 5000 : 3000;
+    setTimeout(() => {
+        // 设置缩放变量而不直接覆盖 transform
+        toast.style.setProperty('--scale', '0.9');
+        toast.style.opacity = '0';
+        
+        setTimeout(() => {
+            const index = activeToasts.indexOf(toast);
+            if (index > -1) {
+                activeToasts.splice(index, 1);
+                toast.remove();
+                // 此时 updatePositions 只会影响还在数组里的元素
+                updatePositions(); 
+            }
+        }, 400);
+    }, duration);
+}
+
+
+// ========== src/history.js ==========
+/**
+ * 文件历史管理模块 - IndexedDB + 内存双层存储
+ * 提供可靠的版本回退能力
+ */
+
+const DB_NAME = 'ide-bridge-history';
+const DB_VERSION = 1;
+const STORE_NAME = 'file-history';
+const MAX_HISTORY_PER_FILE = 10;
+
+class FileHistory {
+    constructor() {
+        this.db = null;
+        this.memoryCache = new Map(); // 内存缓存，快速访问
+        this._initDB();
+    }
+
+    async _initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            
+            request.onerror = () => {
+                console.error('[History] IndexedDB 打开失败');
+                reject(request.error);
+            };
+            
+            request.onsuccess = () => {
+                this.db = request.result;
+                console.log('[History] IndexedDB 已连接');
+                resolve(this.db);
+            };
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('filePath', 'filePath', { unique: false });
+                    store.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+            };
+        });
+    }
+
+    async _ensureDB() {
+        if (!this.db) {
+            await this._initDB();
+        }
+        return this.db;
+    }
+
+    /**
+     * 保存文件版本（写入前调用）
+     */
+    async saveVersion(filePath, content) {
+        const record = {
+            filePath,
+            content,
+            timestamp: Date.now()
+        };
+
+        // 1. 存入内存缓存
+        if (!this.memoryCache.has(filePath)) {
+            this.memoryCache.set(filePath, []);
+        }
+        const memList = this.memoryCache.get(filePath);
+        memList.push(record);
+        if (memList.length > MAX_HISTORY_PER_FILE) {
+            memList.shift();
+        }
+
+        // 2. 存入 IndexedDB
+        try {
+            const db = await this._ensureDB();
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            store.add(record);
+            
+            // 清理旧版本
+            await this._cleanOldVersions(filePath);
+        } catch (err) {
+            console.error('[History] 保存失败:', err);
+        }
+    }
+
+    /**
+     * 获取文件的历史版本列表
+     */
+    async getVersions(filePath) {
+        // 优先从内存获取
+        if (this.memoryCache.has(filePath)) {
+            return [...this.memoryCache.get(filePath)].reverse();
+        }
+
+        // 从 IndexedDB 获取
+        try {
+            const db = await this._ensureDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const index = store.index('filePath');
+                const request = index.getAll(filePath);
+                
+                request.onsuccess = () => {
+                    const results = request.result || [];
+                    // 按时间倒序
+                    results.sort((a, b) => b.timestamp - a.timestamp);
+                    resolve(results);
+                };
+                request.onerror = () => resolve([]);
+            });
+        } catch (err) {
+            return [];
+        }
+    }
+
+    /**
+     * 获取最近一个版本（用于快速撤销）
+     */
+    async getLastVersion(filePath) {
+        const versions = await this.getVersions(filePath);
+        return versions.length > 0 ? versions[0] : null;
+    }
+
+    /**
+     * 清理超出限制的旧版本 (优化：使用 count 检查减少内存占用)
+     */
+    async _cleanOldVersions(filePath) {
+        try {
+            const db = await this._ensureDB();
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const index = store.index('filePath');
+            
+            // 先统计数量，只有超出时才执行获取和删除
+            const countRequest = index.count(filePath);
+            countRequest.onsuccess = () => {
+                if (countRequest.result > MAX_HISTORY_PER_FILE) {
+                    const getRequest = index.getAll(filePath);
+                    getRequest.onsuccess = () => {
+                        const records = getRequest.result || [];
+                        records.sort((a, b) => a.timestamp - b.timestamp);
+                        const toDelete = records.slice(0, records.length - MAX_HISTORY_PER_FILE);
+                        const deleteTx = db.transaction(STORE_NAME, 'readwrite');
+                        const deleteStore = deleteTx.objectStore(STORE_NAME);
+                        toDelete.forEach(r => deleteStore.delete(r.id));
+                    };
+                }
+            };
+        } catch (err) {
+            console.error('[History] 清理失败:', err);
+        }
+    }
+
+    /**
+     * 删除某文件的所有历史
+     */
+    async clearFileHistory(filePath) {
+        this.memoryCache.delete(filePath);
+        
+        try {
+            const db = await this._ensureDB();
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const index = store.index('filePath');
+            
+            const request = index.getAllKeys(filePath);
+            request.onsuccess = () => {
+                (request.result || []).forEach(key => store.delete(key));
+            };
+        } catch (err) {
+            console.error('[History] 清理文件历史失败:', err);
+        }
+    }
+
+    /**
+     * 格式化时间戳
+     */
+    formatTime(timestamp) {
+        const d = new Date(timestamp);
+        const pad = n => n.toString().padStart(2, '0');
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+}
+
+const history = new FileHistory();
+
+
+// ========== src/fs.js ==========
+/**
+ * 文件系统模块 - 处理本地文件读写
+ */
+
+
+
+const IGNORE_DIRS = new Set([
+    'node_modules', '.git', 'dist', '.DS_Store', '.idea', 
+    '.vscode', '__pycache__', '.next', 'build', '.cache'
+]);
+
+class FileSystem {
+    constructor() {
+        this.rootHandle = null;
+        this.fileHandles = new Map();
+        this.dirHandles = new Map(); // 新增：目录句柄缓存
+        this.projectName = '';
+    }
+
+    async openProject() {
+        try {
+            const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            this.rootHandle = dirHandle;
+            this.projectName = dirHandle.name;
+            return await this.refreshProject();
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    }
+
+    // 🔄 新增：静默刷新项目（不弹窗）
+    async refreshProject() {
+        if (!this.rootHandle) return { success: false, error: '未连接项目' };
+        
+        try {
+            this.fileHandles.clear();
+            this.dirHandles.clear();
+            const tree = await this._scanDir(this.rootHandle);
+            return { success: true, rootName: this.rootHandle.name, tree };
+        } catch (err) {
+            console.error('[FS] 刷新失败:', err);
+            return { success: false, error: err.message };
+        }
+    }
+
+    async _scanDir(dirHandle, path = '') {
+        const entries = [];
+        // 缓存目录句柄
+        this.dirHandles.set(path || '.', dirHandle);
+        
+        for await (const entry of dirHandle.values()) {
+            if (IGNORE_DIRS.has(entry.name)) continue;
+            const relPath = path ? `${path}/${entry.name}` : entry.name;
+            
+            if (entry.kind === 'file') {
+                this.fileHandles.set(relPath, entry);
+                entries.push({ name: entry.name, kind: 'file', path: relPath });
+            } else if (entry.kind === 'directory') {
+                entries.push({
+                    name: entry.name, kind: 'directory', path: relPath,
+                    children: await this._scanDir(entry, relPath)
+                });
+            }
+        }
+        return entries.sort((a, b) => {
+            if (a.kind === b.kind) return a.name.localeCompare(b.name);
+            return a.kind === 'directory' ? -1 : 1;
+        });
+    }
+
+    async readFile(filePath) {
+        const handle = this.fileHandles.get(filePath);
+        if (!handle) return null;
+        try {
+            const file = await handle.getFile();
+            return await file.text();
+        } catch (err) {
+            console.error('[FS] 读取失败:', filePath, err);
+            return null;
+        }
+    }
+
+    async writeFile(filePath, content, saveHistory = true) {
+        const handle = this.fileHandles.get(filePath);
+        if (!handle) {
+            console.error('[FS] 文件不存在:', filePath);
+            return false;
+        }
+        try {
+            // 写入前保存历史版本
+            if (saveHistory) {
+                const oldContent = await this.readFile(filePath);
+                if (oldContent !== null) {
+                    await history.saveVersion(filePath, oldContent);
+                }
+            }
+            
+            const writable = await handle.createWritable();
+            await writable.write(content);
+            await writable.close();
+            return true;
+        } catch (err) {
+            console.error('[FS] 写入失败:', filePath, err);
+            return false;
+        }
+    }
+
+    /**
+     * 回退文件到上一个版本
+     */
+    async revertFile(filePath) {
+        const lastVersion = await history.getLastVersion(filePath);
+        if (!lastVersion) {
+            return { success: false, error: '没有可回退的版本' };
+        }
+        const success = await this.writeFile(filePath, lastVersion.content, false);
+        return { success, content: lastVersion.content, timestamp: lastVersion.timestamp };
+    }
+
+    /**
+     * 回退到指定版本
+     */
+    async revertToVersion(filePath, timestamp) {
+        const versions = await history.getVersions(filePath);
+        const target = versions.find(v => v.timestamp === timestamp);
+        if (!target) {
+            return { success: false, error: '版本不存在' };
+        }
+        const success = await this.writeFile(filePath, target.content, false);
+        return { success, content: target.content };
+    }
+
+    /**
+     * 获取文件历史版本
+     */
+    async getFileHistory(filePath) {
+        return await history.getVersions(filePath);
+    }
+
+    async createFile(filePath, content = '') {
+        if (!this.rootHandle) return false;
+        try {
+            const parts = filePath.split('/');
+            const fileName = parts.pop();
+            let currentHandle = this.rootHandle;
+            
+            // 创建中间目录
+            for (const part of parts) {
+                currentHandle = await currentHandle.getDirectoryHandle(part, { create: true });
+            }
+            
+            // 创建文件
+            const fileHandle = await currentHandle.getFileHandle(fileName, { create: true });
+            this.fileHandles.set(filePath, fileHandle);
+            
+            // 写入内容
+            const writable = await fileHandle.createWritable();
+            await writable.write(content);
+            await writable.close();
+            return true;
+        } catch (err) {
+            console.error('[FS] 创建文件失败:', filePath, err);
+            return false;
+        }
+    }
+
+    /**
+     * 删除文件
+     */
+    async deleteFile(filePath) {
+        if (!this.rootHandle) return false;
+        
+        try {
+            const parts = filePath.split('/');
+            const fileName = parts.pop();
+            
+            // 获取父目录句柄
+            let parentHandle = this.rootHandle;
+            for (const part of parts) {
+                parentHandle = await parentHandle.getDirectoryHandle(part);
+            }
+            
+            // 删除文件
+            await parentHandle.removeEntry(fileName);
+            
+            // 清理缓存
+            this.fileHandles.delete(filePath);
+            await history.clearFileHistory(filePath);
+            
+            return true;
+        } catch (err) {
+            console.error('[FS] 删除文件失败:', filePath, err);
+            return false;
+        }
+    }
+
+    /**
+     * 删除目录（递归）
+     */
+    async deleteDirectory(dirPath) {
+        if (!this.rootHandle) return false;
+        
+        try {
+            const parts = dirPath.split('/');
+            const dirName = parts.pop();
+            
+            // 获取父目录句柄
+            let parentHandle = this.rootHandle;
+            for (const part of parts) {
+                parentHandle = await parentHandle.getDirectoryHandle(part);
+            }
+            
+            // 递归删除
+            await parentHandle.removeEntry(dirName, { recursive: true });
+            
+            // 清理相关缓存 (先收集再清理，确保遍历安全)
+            const pathsToDelete = [];
+            for (const [path] of this.fileHandles) {
+                if (path === dirPath || path.startsWith(dirPath + '/')) {
+                    pathsToDelete.push(path);
+                }
+            }
+            
+            for (const path of pathsToDelete) {
+                this.fileHandles.delete(path);
+                await history.clearFileHistory(path);
+            }
+            this.dirHandles.delete(dirPath);
+            
+            return true;
+        } catch (err) {
+            console.error('[FS] 删除目录失败:', dirPath, err);
+            return false;
+        }
+    }
+
+    hasFile(filePath) {
+        return this.fileHandles.has(filePath);
+    }
+
+    /**
+     * 生成带视觉连线的目录结构树
+     */
+    generateStructure(node, indent = '', isLast = true) {
+        let result = '';
+        const marker = isLast ? '└── ' : '├── ';
+        const icon = node.kind === 'directory' ? '📂' : '📄';
+        
+        result += indent + marker + icon + node.name + '\n';
+        
+        if (node.kind === 'directory' && node.children) {
+            const nextIndent = indent + (isLast ? '    ' : '│   ');
+            node.children.forEach((child, index) => {
+                const lastChild = index === node.children.length - 1;
+                result += this.generateStructure(child, nextIndent, lastChild);
+            });
+        }
+        return result;
+    }
+
+    generateFullStructure(tree) {
+        // 第一层节点统一不带 marker，直接递归其子节点
+        return tree.map((node, index) => {
+            const isLast = index === tree.length - 1;
+            return this.generateStructure(node, '', isLast);
+        }).join('');
+    }
+}
+
+const fs = new FileSystem();
+
+
+// ========== src/theme.js ==========
+/**
+ * 主题模块 - 检测和管理主题样式
+ */
+
+// 检测当前页面是亮色还是暗色主题
+function detectTheme() {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const match = bg.match(/\d+/g);
+    if (match) {
+        const [r, g, b] = match.map(Number);
+        // 计算亮度，亮度低于 128 认为是暗色主题
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        return brightness < 128 ? 'dark' : 'light';
+    }
+    return 'dark'; // 默认暗色
+}
+
+// 生成主题 CSS
+function getThemeCSS(theme) {
+    const common = `
+        .ide-glass { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .ide-tree-item { transition: background 0.1s ease; border-radius: 4px; }
+        .ide-tree-item:hover { background: var(--ide-hover) !important; }
+        #ide-tree-container::-webkit-scrollbar { width: 4px; }
+        #ide-tree-container::-webkit-scrollbar-track { background: transparent; }
+        #ide-tree-container::-webkit-scrollbar-thumb { background: var(--ide-border); border-radius: 2px; }
+        .ide-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        
+        /* 弹窗动画 */
+        @keyframes ideFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes ideScaleIn { from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+        /* 工具栏按钮 */
+        .ide-btn {
+            background: transparent;
+            color: var(--ide-text);
+            border: 1px solid var(--ide-border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            flex: 1;
+        }
+        .ide-btn:hover {
+            background: var(--ide-hover);
+            border-color: var(--ide-text-secondary);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .ide-btn:active { transform: translateY(0); }
+        
+        .ide-btn.primary {
+            color: var(--ide-accent);
+            border-color: var(--ide-accent);
+        }
+        .ide-btn.primary:hover {
+            background: var(--ide-accent);
+            color: #fff !important;
+        }
+    `;
+    
+    if (theme === 'light') {
+        return `
+            :root { 
+                --ide-bg: #f0f4f9;
+                --ide-border: #dfe4ec;
+                --ide-text: #1f1f1f;
+                --ide-text-secondary: #444746;
+                --ide-text-file: #1f1f1f;
+                --ide-text-folder: #0b57d0;
+                --ide-hover: rgba(0, 0, 0, 0.06);
+                --ide-shadow: 0 4px 24px rgba(0,0,0,0.08);
+                --ide-hint-bg: #e3e3e3; 
+                --ide-hint-text: #0b57d0;
+                --ide-accent: #0b57d0;
+            }
+            ${common}
+        `;
+    }
+    return `
+        :root { 
+            --ide-bg: rgba(30, 31, 32, 0.88); 
+            --ide-border: #444746; 
+            --ide-text: #e3e3e3;
+            --ide-text-secondary: #c4c7c5;
+            --ide-text-file: #e3e3e3;
+            --ide-text-folder: #a8c7fa;
+            --ide-hover: rgba(255, 255, 255, 0.08);
+            --ide-shadow: 0 4px 24px rgba(0,0,0,0.4);
+            --ide-hint-bg: #363739;
+            --ide-hint-text: #d3e3fd;
+            --ide-accent: #a8c7fa;
+        }
+        ${common}
+    `;
+}
+
+// 更新主题样式
+function updateTheme() {
+    const style = document.getElementById('ide-theme-style');
+    if (style) {
+        const theme = detectTheme();
+        const newCSS = getThemeCSS(theme);
+        if (style.textContent !== newCSS) {
+            style.textContent = newCSS;
+        }
+    }
+}
+
+// 初始化主题样式元素
+function initThemeStyle() {
+    const style = document.createElement('style');
+    style.id = 'ide-theme-style';
+    style.textContent = getThemeCSS(detectTheme());
+    return style;
+}
+
+
+// ========== src/dialog.js ==========
+/**
+ * 对话框模块 - 所有弹窗和对话框
+ */
+
+
+
+
+// 格式化时间
+function formatTime(timestamp) {
+    const d = new Date(timestamp);
+    const pad = n => n.toString().padStart(2, '0');
+    return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// 格式化文件大小
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    return (bytes / 1024).toFixed(1) + ' KB';
+}
+
+/**
+ * 显示预览对话框 (变更确认)
+ */
+function showPreviewDialog(file, oldText, newText) {
+    return new Promise((resolve) => {
+        // 1. 创建遮罩层
+        const backdrop = document.createElement('div');
+        backdrop.id = 'ide-modal-backdrop';
+        Object.assign(backdrop.style, {
+            position: 'fixed', inset: '0', 
+            background: 'rgba(0, 0, 0, 0.6)', 
+            backdropFilter: 'blur(4px)',
+            zIndex: '2147483648',
+            animation: 'ideFadeIn 0.2s ease-out'
+        });
+
+        // 2. 创建主对话框
+        const dialog = document.createElement('div');
+        dialog.id = 'ide-preview-dialog';
+        Object.assign(dialog.style, {
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--ide-bg)', 
+            color: 'var(--ide-text)',
+            border: '1px solid var(--ide-border)',
+            borderRadius: '12px', 
+            padding: '24px', 
+            zIndex: '2147483649',
+            width: '90vw', maxWidth: '1200px', height: '85vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            animation: 'ideScaleIn 0.2s ease-out'
+        });
+
+        // 3. 头部标题
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: '20px', paddingBottom: '16px',
+            borderBottom: '1px solid var(--ide-border)'
+        });
+        
+        const titleGroup = document.createElement('div');
+        const titleIcon = document.createElement('span');
+        titleIcon.textContent = '📝';
+        titleIcon.style.marginRight = '8px';
+        const titleText = document.createElement('span');
+        titleText.textContent = `变更预览: ${file}`;
+        titleText.style.fontSize = '18px';
+        titleText.style.fontWeight = '600';
+        
+        titleGroup.appendChild(titleIcon);
+        titleGroup.appendChild(titleText);
+        header.appendChild(titleGroup);
+
+        // 4. Diff 内容区
+        const diffBody = document.createElement('div');
+        Object.assign(diffBody.style, {
+            flex: '1', display: 'flex', gap: '16px', 
+            overflow: 'hidden',
+            minHeight: '0'
+        });
+
+        // 辅助函数：创建代码面板
+        const createPane = (content, type) => {
+            const pane = document.createElement('div');
+            Object.assign(pane.style, {
+                flex: '1', display: 'flex', flexDirection: 'column',
+                border: '1px solid var(--ide-border)', borderRadius: '8px',
+                overflow: 'hidden', background: 'var(--ide-hint-bg)'
+            });
+
+            const paneHeader = document.createElement('div');
+            const isAdd = type === 'add';
+            paneHeader.textContent = isAdd ? '🟢 REPLACE (新增/修改)' : '🔴 SEARCH (原始/删除)';
+            Object.assign(paneHeader.style, {
+                padding: '10px 16px', fontSize: '12px', fontWeight: 'bold',
+                background: isAdd ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                color: isAdd ? '#22c55e' : '#ef4444',
+                borderBottom: '1px solid var(--ide-border)'
+            });
+
+            const codeArea = document.createElement('pre');
+            codeArea.textContent = content;
+            Object.assign(codeArea.style, {
+                flex: '1', margin: '0', padding: '16px',
+                overflow: 'auto', fontSize: '13px', lineHeight: '1.6',
+                fontFamily: '"JetBrains Mono", Consolas, monospace',
+                color: 'var(--ide-text)',
+                whiteSpace: 'pre'
+            });
+
+            pane.appendChild(paneHeader);
+            pane.appendChild(codeArea);
+            return pane;
+        };
+
+        diffBody.appendChild(createPane(oldText, 'del'));
+        diffBody.appendChild(createPane(newText, 'add'));
+
+        // 5. 底部按钮区
+        const footer = document.createElement('div');
+        Object.assign(footer.style, {
+            display: 'flex', justifyContent: 'flex-end', gap: '12px',
+            marginTop: '20px', paddingTop: '16px',
+            borderTop: '1px solid var(--ide-border)'
+        });
+
+        const closeAll = () => { backdrop.remove(); dialog.remove(); };
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消';
+        Object.assign(cancelBtn.style, {
+            padding: '8px 20px', borderRadius: '6px', cursor: 'pointer',
+            background: 'transparent', border: '1px solid var(--ide-border)',
+            color: 'var(--ide-text)', fontSize: '14px'
+        });
+        cancelBtn.onmouseover = () => cancelBtn.style.background = 'var(--ide-hover)';
+        cancelBtn.onmouseout = () => cancelBtn.style.background = 'transparent';
+        cancelBtn.onclick = () => { closeAll(); resolve(false); };
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = '确认应用修改';
+        Object.assign(confirmBtn.style, {
+            padding: '8px 24px', borderRadius: '6px', cursor: 'pointer',
+            background: 'var(--ide-accent)', color: '#fff', 
+            border: 'none', fontSize: '14px', fontWeight: '600',
+            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+        });
+        confirmBtn.onclick = () => { closeAll(); resolve(true); };
+
+        footer.appendChild(cancelBtn);
+        footer.appendChild(confirmBtn);
+
+        dialog.appendChild(header);
+        dialog.appendChild(diffBody);
+        dialog.appendChild(footer);
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(dialog);
+    });
+}
+
+
+/**
+ * 显示历史版本对话框 (V1.3.2 最终修复)
+ */
+function showHistoryDialog(filePath) {
+    return new Promise(async (resolve) => {
+        const versions = await fs.getFileHistory(filePath);
+        if (versions.length === 0) {
+            showToast('暂无历史版本', 'info');
+            return resolve(null);
+        }
+
+        const existing = document.getElementById('ide-history-dialog');
+        if (existing) existing.remove();
+
+        const dialog = document.createElement('div');
+        dialog.id = 'ide-history-dialog';
+        Object.assign(dialog.style, {
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
+            borderRadius: '12px', padding: '20px', zIndex: '2147483649',
+            width: '400px', maxHeight: '60vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)'
+        });
+
+        // 标题
+        const header = document.createElement('div');
+        header.textContent = '📜 历史回溯 - ' + filePath.split('/').pop();
+        Object.assign(header.style, {
+            fontWeight: 'bold', marginBottom: '16px', color: 'var(--ide-text)',
+            paddingBottom: '12px', borderBottom: '1px solid var(--ide-border)', fontSize: '15px'
+        });
+        dialog.appendChild(header);
+
+        // 列表容器
+        const list = document.createElement('div');
+        Object.assign(list.style, { flex: '1', overflowY: 'auto', paddingRight: '4px' });
+
+        versions.forEach((v) => {
+            const item = document.createElement('div');
+            Object.assign(item.style, {
+                padding: '10px', margin: '6px 0', background: 'var(--ide-hint-bg)',
+                borderRadius: '6px', display: 'flex',
+                justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s'
+            });
+            item.className = 'ide-tree-item';
+
+            const info = document.createElement('div');
+            info.style.display = 'flex';
+            info.style.flexDirection = 'column';
+            
+            const time = document.createElement('span');
+            time.textContent = formatTime(v.timestamp);
+            time.style.color = 'var(--ide-text)';
+            time.style.fontSize = '13px';
+            time.style.fontWeight = '500';
+
+            const size = document.createElement('span');
+            size.textContent = formatSize(v.content.length);
+            size.style.color = 'var(--ide-text-secondary)';
+            size.style.fontSize = '11px';
+            
+            info.appendChild(time);
+            info.appendChild(size);
+
+            // 按钮组
+            const actions = document.createElement('div');
+            actions.style.display = 'flex';
+            actions.style.gap = '8px';
+
+            const viewBtn = document.createElement('button');
+            viewBtn.textContent = '🆚 对比';
+            viewBtn.title = '与当前本地版本对比';
+            viewBtn.className = 'ide-btn'; // 复用重构后的统一按钮类
+            Object.assign(viewBtn.style, { padding: '4px 8px', fontSize: '11px', flex: 'none' });
+            
+            viewBtn.onclick = async () => {
+                const currentContent = await fs.readFile(filePath);
+                if (currentContent === null) {
+                    showToast('无法读取当前文件', 'error');
+                    return;
+                }
+                // 确保调用同文件内的对比函数
+                showHistoryDiff(filePath, v, currentContent);
+            };
+
+            const revertBtn = document.createElement('button');
+            revertBtn.textContent = '回退';
+            revertBtn.title = '回退到此版本';
+            Object.assign(revertBtn.style, {
+                background: 'var(--ide-accent)', color: '#fff', border: 'none',
+                padding: '4px 10px', borderRadius: '4px', cursor: 'pointer',
+                fontSize: '12px', fontWeight: 'bold'
+            });
+            revertBtn.onclick = async () => {
+                if (!confirm(`确定回退到 ${formatTime(v.timestamp)} 的版本？`)) return;
+                const result = await fs.revertToVersion(filePath, v.timestamp);
+                if (result.success) {
+                    showToast('✅ 已回退');
+                    dialog.remove();
+                }
+            };
+
+            actions.appendChild(viewBtn);
+            actions.appendChild(revertBtn);
+            
+            item.appendChild(info);
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+        dialog.appendChild(list);
+
+        // 关闭按钮
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '关闭';
+        Object.assign(closeBtn.style, {
+            marginTop: '16px', width: '100%', background: 'transparent',
+            color: 'var(--ide-text-secondary)', border: '1px solid var(--ide-border)', 
+            padding: '10px', borderRadius: '6px', cursor: 'pointer'
+        });
+        closeBtn.onmouseover = () => closeBtn.style.color = 'var(--ide-text)';
+        closeBtn.onmouseout = () => closeBtn.style.color = 'var(--ide-text-secondary)';
+        closeBtn.onclick = () => { dialog.remove(); resolve(null); };
+        dialog.appendChild(closeBtn);
+
+        document.body.appendChild(dialog);
+    });
+}
+
+/**
+ * 🆚 历史对比视图 (V1.3.0 History Diff)
+ */
+function showHistoryDiff(filePath, version, currentContent) {
+    const backdrop = document.createElement('div');
+    Object.assign(backdrop.style, {
+        position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(4px)', zIndex: '2147483650',
+        animation: 'ideFadeIn 0.2s ease-out'
+    });
+
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '90vw', maxWidth: '1200px', height: '85vh',
+        background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
+        borderRadius: '12px', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', zIndex: '2147483651',
+        animation: 'ideScaleIn 0.2s ease-out'
+    });
+
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+        padding: '16px 24px', borderBottom: '1px solid var(--ide-border)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+    });
+
+    const titleText = document.createElement('div');
+    titleText.textContent = `🆚 版本对比: ${filePath.split('/').pop()}`;
+    Object.assign(titleText.style, { fontWeight: '600', color: 'var(--ide-text)', fontSize: '16px' });
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '关闭预览';
+    closeBtn.className = 'ide-btn';
+    closeBtn.onclick = () => { backdrop.remove(); container.remove(); };
+    
+    header.appendChild(titleText);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    Object.assign(body.style, {
+        flex: '1', display: 'flex', overflow: 'hidden',
+        background: 'var(--ide-hint-bg)'
+    });
+
+    const createPane = (title, content, bgColor, borderColor) => {
+        const pane = document.createElement('div');
+        Object.assign(pane.style, {
+            flex: '1', display: 'flex', flexDirection: 'column',
+            borderRight: '1px solid var(--ide-border)', minWidth: '0'
+        });
+
+        const paneHeader = document.createElement('div');
+        paneHeader.textContent = title;
+        Object.assign(paneHeader.style, {
+            padding: '8px 16px', fontSize: '12px', fontWeight: 'bold',
+            background: bgColor, color: borderColor,
+            borderBottom: `1px solid ${borderColor}`, opacity: '0.9'
+        });
+
+        const pre = document.createElement('pre');
+        pre.textContent = content;
+        Object.assign(pre.style, {
+            flex: '1', margin: '0', padding: '16px', overflow: 'auto',
+            fontFamily: '"JetBrains Mono", Consolas, monospace', fontSize: '13px',
+            lineHeight: '1.5', color: 'var(--ide-text)', whiteSpace: 'pre'
+        });
+
+        pane.appendChild(paneHeader);
+        pane.appendChild(pre);
+        return pane;
+    };
+
+    const leftPane = createPane(`🕰️ 历史版本 (${formatTime(version.timestamp)})`, version.content, 'rgba(234, 179, 8, 0.1)', '#eab308');
+    const rightPane = createPane('💻 当前本地版本', currentContent, 'rgba(59, 130, 246, 0.1)', '#3b82f6');
+    rightPane.style.borderRight = 'none';
+
+    body.appendChild(leftPane);
+    body.appendChild(rightPane);
+    container.appendChild(header);
+    container.appendChild(body);
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(container);
+    
+    // 防误触优化：仅允许通过显式的“关闭预览”按钮关闭，移除背景点击关闭
+    // backdrop.onclick = () => { backdrop.remove(); container.remove(); };
+}
+
+
+// ========== src/parser.js ==========
+/**
+ * 解析器模块 - 解析 AI 输出的指令
+ */
+
+/**
+ * 提取文件路径 (支持 [OVERWRITE] 标记)
+ */
+function extractFilePath(text) {
+    const patterns = [
+        /^\/\/\s*FILE:\s*(.+?)(?:\s*\[OVERWRITE\])?\s*$/m,
+        /^#\s*FILE:\s*(.+?)(?:\s*\[OVERWRITE\])?\s*$/m,
+        /^\/\*\s*FILE:\s*(.+?)(?:\s*\[OVERWRITE\])?\s*\*\/$/m,
+        /^<!--\s*FILE:\s*(.+?)(?:\s*\[OVERWRITE\])?\s*-->$/m
+    ];
+    
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) return match[1].trim();
+    }
+    return null;
+}
+
+/**
+ * 检测是否为 OVERWRITE 模式
+ */
+function isOverwriteMode(text) {
+    return /FILE:\s*.+?\s*\[OVERWRITE\]/i.test(text);
+}
+
+/**
+ * 解析 DELETE 块
+ * 支持格式：
+ * <<<<<< DELETE [文件路径]
+ * >>>>>> END
+ * 或多个连续的删除块
+ */
+function parseDelete(text) {
+    const deletes = [];
+    // 兼容 6-7 个符号，中间内容可选
+    const regex = /<{6,7}\s*DELETE\s*\[([^\]]+)\]\s*[\s\S]*?>{6,7}\s*END/g;
+    
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        deletes.push({
+            file: match[1].trim()
+        });
+    }
+    
+    return deletes;
+}
+
+/**
+ * 解析 SEARCH/REPLACE 块（支持空 replace 表示删除）
+ */
+function parseSearchReplace(text) {
+    const patches = [];
+    // 修复：允许 6-7 个 > 或 <，兼容 AI 输出的格式差异
+    const regex = /<{6,7} SEARCH(?:\s*\[(.+?)\])?\s*\n([\s\S]*?)\n={6,7}\n?([\s\S]*?)>{6,7} REPLACE/g;
+    
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        patches.push({
+            file: match[1] || null,
+            search: match[2],
+            replace: match[3].replace(/\n$/, ''),
+            isDelete: match[3].trim() === ''
+        });
+    }
+    
+    return patches;
+}
+
+/**
+ * 清理代码内容 (移除 FILE: 注释)
+ */
+function cleanContent(text) {
+    return text
+        .replace(/^\/\/\s*FILE:\s*.+?(?:\s*\[OVERWRITE\])?\s*\n?/m, '')
+        .replace(/^#\s*FILE:\s*.+?(?:\s*\[OVERWRITE\])?\s*\n?/m, '')
+        .replace(/^\/\*\s*FILE:\s*.+?(?:\s*\[OVERWRITE\])?\s*\*\/\n?/m, '')
+        .replace(/^<!--\s*FILE:\s*.+?(?:\s*\[OVERWRITE\])?\s*-->\n?/m, '')
+        .trim();
+}
+
+/**
+ * 解析多个 FILE: 块（批量创建/覆盖）
+ * 增强：支持 [path] 格式及特殊字符路径
+ */
+function parseMultipleFiles(text) {
+    const files = [];
+    // 增强正则：支持可选的方括号包裹路径
+    const filePattern = /(?:\/\/|#|\/\*)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
+    
+    const matches = [];
+    let match;
+    while ((match = filePattern.exec(text)) !== null) {
+        matches.push({
+            index: match.index,
+            path: match[1].trim(),
+            isOverwrite: match[0].includes('[OVERWRITE]')
+        });
+    }
+    
+    if (matches.length === 0) return files;
+    
+    // 按位置分割内容
+    for (let i = 0; i < matches.length; i++) {
+        const current = matches[i];
+        const nextIndex = i + 1 < matches.length ? matches[i + 1].index : text.length;
+        
+        // 提取当前文件块的内容
+        let blockText = text.substring(current.index, nextIndex);
+        // 移除 FILE: 行本身
+        // 升级为行级捕获，确保彻底抹除标记及其后的换行符
+        blockText = blockText
+            .replace(/^(?:\/\/|#|\/\*)\s*FILE:.*(?:\r?\n|$)/m, '')
+            .trim();
+        
+        if (current.path && blockText) {
+            files.push({
+                path: current.path,
+                content: blockText,
+                isOverwrite: current.isOverwrite
+            });
+        }
+    }
+    
+    return files;
+}
+
+
+// ========== src/patcher.js ==========
+/**
+ * 补丁模块 - 代码匹配和替换算法
+ */
+
+/**
+ * 尝试替换（返回结果对象）
+ * 两层匹配：精确 → 模糊(空白)
+ * 注：已移除智能匹配，宁可不匹配也不要匹配错位置
+ */
+function tryReplace(content, search, replace) {
+    // 1. 精确匹配
+    if (content.includes(search)) {
+        return {
+            success: true,
+            content: content.replace(search, replace)
+        };
+    }
+
+    // 2. 模糊匹配（忽略空白差异）
+    const fuzzyResult = fuzzyReplace(content, search, replace);
+    if (fuzzyResult) {
+        return {
+            success: true,
+            content: fuzzyResult
+        };
+    }
+
+    return {
+        success: false,
+        reason: '未找到匹配'
+    };
+}
+
+/**
+ * 模糊匹配替换 (处理空白差异)
+ */
+function fuzzyReplace(content, search, replace) {
+    // 基础防御：Search 必须包含有效内容
+    if (!search || !search.trim()) return null;
+
+    const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '');
+    
+    const normalizedContent = normalize(content);
+    const normalizedSearch = normalize(search);
+    
+    // 只有在 normalizedSearch 不为空时才进行包含检查
+    if (normalizedSearch && normalizedContent.includes(normalizedSearch)) {
+        const lines = content.split('\n');
+        const searchLines = search.trim().split('\n');
+        
+        for (let i = 0; i <= lines.length - searchLines.length; i++) {
+            let match = true;
+            for (let j = 0; j < searchLines.length; j++) {
+                if (lines[i + j].trim() !== searchLines[j].trim()) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                const before = lines.slice(0, i);
+                const after = lines.slice(i + searchLines.length);
+                const replaceLines = replace.split('\n');
+                return [...before, ...replaceLines, ...after].join('\n');
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * 检查 JS/TS 代码语法是否有效（静态分析，不使用 eval/new Function）
+ * 返回 { valid: boolean, error?: string }
+ */
+function checkJsSyntax(code, filePath = '') {
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const jsExts = ['js', 'jsx', 'ts', 'tsx', 'mjs'];
+    if (filePath && !jsExts.includes(ext)) {
+        return { valid: true };
+    }
+    
+    const stripped = stripCommentsAndStrings(code);
+    return checkBrackets(stripped);
+}
+
+/**
+ * 移除代码中的注释、字符串和正则表达式（增强版状态机）
+ */
+function stripCommentsAndStrings(code) {
+    let result = '';
+    let i = 0;
+    const len = code.length;
+    
+    // 判断是否可能为正则开头
+    const canBeRegex = () => {
+        let j = result.length - 1;
+        while (j >= 0 && /\s/.test(result[j])) j--;
+        if (j < 0) return true;
+        const lastChar = result[j];
+        // 扩展了关键字列表，包括 yield 和 await
+        return /[=(:,;\[!&|?{}<>+\-*%^~]/.test(lastChar) || 
+               result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
+    };
+    
+    while (i < len) {
+        const char = code[i];
+        const next = code[i + 1];
+
+        // 1. 单行注释 //...
+        if (char === '/' && next === '/') {
+            i += 2;
+            while (i < len && code[i] !== '\n') i++;
+            continue;
+        }
+        
+        // 2. 多行注释 /*...*/
+        if (char === '/' && next === '*') {
+            i += 2;
+            while (i < len - 1 && !(code[i] === '*' && code[i+1] === '/')) i++;
+            i += 2;
+            continue;
+        }
+        
+        // 3. 正则表达式 /.../
+        if (char === '/' && next !== '/' && next !== '*' && canBeRegex()) {
+            i++; // 跳过开头 /
+            let inClass = false; // 是否在 [] 内
+            while (i < len) {
+                const c = code[i];
+                if (c === '/') {
+                    if (!inClass) break; // 正则结束
+                } else if (c === '\\') {
+                    i++; // 跳过转义字符
+                } else if (c === '[') {
+                    inClass = true;
+                } else if (c === ']') {
+                    inClass = false;
+                }
+                i++;
+            }
+            i++; // 跳过结尾 /
+            // 跳过 flags
+            while (i < len && /[gimsuy]/.test(code[i])) i++;
+            continue;
+        }
+        
+        // 4. 字符串 '...' "..." `...`
+        if (char === '"' || char === "'" || char === '`') {
+            const quote = char;
+            i++;
+            while (i < len && code[i] !== quote) {
+                if (code[i] === '\\') i++; // 跳过转义
+                i++;
+            }
+            i++;
+            continue;
+        }
+        
+        result += char;
+        i++;
+    }
+    
+    return result;
+}
+
+/**
+ * 检查括号是否匹配
+ */
+function checkBrackets(code) {
+    const stack = [];
+    const pairs = { ')': '(', ']': '[', '}': '{' };
+    const opens = new Set(['(', '[', '{']);
+    const closes = new Set([')', ']', '}']);
+    
+    let line = 1;
+    for (let i = 0; i < code.length; i++) {
+        const ch = code[i];
+        if (ch === '\n') line++;
+        
+        if (opens.has(ch)) {
+            stack.push({ char: ch, line });
+        } else if (closes.has(ch)) {
+            if (stack.length === 0) {
+                return { valid: false, error: `第 ${line} 行: 多余的 '${ch}'` };
+            }
+            const last = stack.pop();
+            if (last.char !== pairs[ch]) {
+                return { valid: false, error: `第 ${line} 行: '${ch}' 与 '${last.char}' (第 ${last.line} 行) 不匹配` };
+            }
+        }
+    }
+    
+    if (stack.length > 0) {
+        const unclosed = stack[stack.length - 1];
+        return { valid: false, error: `第 ${unclosed.line} 行: '${unclosed.char}' 未闭合` };
+    }
+    
+    return { valid: true };
+}
+
+
+// ========== src/state.js ==========
+/**
+ * 状态管理模块 - 补丁应用状态持久化
+ */
+
+const STORAGE_KEY = 'ide-applied-patches';
+
+/**
+ * 生成修改块的唯一标识
+ */
+function getPatchKey(file, search) {
+    const content = file + ':' + search.slice(0, 100);
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+        hash = ((hash << 5) - hash) + content.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return 'patch_' + Math.abs(hash).toString(36);
+}
+
+/**
+ * 记录已应用的修改
+ */
+function markAsApplied(file, search) {
+    try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const key = getPatchKey(file, search);
+        data[key] = { file, timestamp: Date.now() };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn('[IDE] 保存应用记录失败', e);
+    }
+}
+
+/**
+ * 移除应用记录（撤销时）
+ */
+function unmarkAsApplied(file, search) {
+    try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const key = getPatchKey(file, search);
+        delete data[key];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        console.warn('[IDE] 移除应用记录失败', e);
+    }
+}
+
+/**
+ * 检查修改是否已应用（保守策略：只信任明确的证据）
+ */
+async function checkIfApplied(file, search, replace, fsModule) {
+    try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const key = getPatchKey(file, search);
+        const hasRecord = !!data[key];
+        
+        if (fsModule.hasFile(file)) {
+            const content = await fsModule.readFile(file);
+            if (content !== null) {
+                // 采用与 patcher.js 一致的模糊匹配逻辑
+                const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
+                const normalizedContent = normalize(content);
+                const normalizedSearch = normalize(search);
+                
+                const searchExists = normalizedContent.includes(normalizedSearch);
+                
+                // SEARCH 存在 = 明确未应用
+                if (searchExists) {
+                    return { applied: false, confident: true };
+                }
+                
+                // SEARCH 不存在 + 有记录 = 已应用
+                // SEARCH 不存在 + 无记录 = 不确定，保守地认为未应用
+                // （避免误判：REPLACE 内容可能本来就存在于文件中）
+                if (hasRecord) {
+                    return { applied: true, confident: true };
+                }
+            }
+        }
+        
+        // 默认：未应用
+        return { applied: false, confident: false };
+    } catch (e) {
+        return { applied: false, confident: false };
+    }
+}
+
+
+// ========== src/prompt.js ==========
+/**
+ * 提示词模块 - 系统提示词生成
+ */
+
+
+
+/**
+ * 获取系统提示词
+ */
+function getSystemPrompt() {
+    return `# 🔌 IDE Bridge 协作模式已启用
+
+你现在连接到了我的本地项目 "${fs.projectName}"，可以直接读写本地文件。
+
+## 📝 代码输出规范
+
+### 1. 修改现有文件（增量修改，推荐）
+\`\`\`
+<<<<<<< SEARCH [完整相对路径]
+要被替换的原始代码（精确匹配）
+=======
+替换后的新代码
+>>>>>>> REPLACE
+\`\`\`
+
+### 2. 删除代码段（REPLACE 留空）
+\`\`\`
+<<<<<<< SEARCH [完整相对路径]
+要删除的代码段
+=======
+>>>>>>> REPLACE
+\`\`\`
+
+### 3. 创建新文件
+\`\`\`javascript
+// FILE: src/components/Button.js
+完整的文件内容...
+\`\`\`
+
+### 4. 覆盖整个文件（大规模重构时使用）
+\`\`\`javascript
+// FILE: src/utils.js [OVERWRITE]
+完整的新文件内容...
+\`\`\`
+
+### 5. 删除文件
+\`\`\`
+<<<<<<< DELETE [完整相对路径]
+>>>>>>> END
+\`\`\`
+
+## ⚠️ 重要规则
+1. **路径必须是相对于项目根目录的完整路径**，如 \`src/utils/helper.js\`
+2. **小改动用增量修改**，大重构用 \`[OVERWRITE]\` 覆盖
+3. SEARCH 块必须**精确匹配**原文件内容（包括空格缩进）
+4. 一次可以输出多个修改块
+5. 我会在代码块下方看到操作按钮
+
+## ✅ 已就绪
+- 文件读写 ✓
+- 版本回退 ✓（修改前自动保存历史）
+- 新建/删除文件 ✓
+- 删除代码段 ✓
+- 全量覆盖 ✓
+
+现在请按照这个格式输出代码，我可以一键应用到本地！`;
+}
+
+
+// ========== src/deps.js ==========
+/**
+ * 依赖分析模块 - 自动解析文件的 import/require 依赖
+ * 支持: JS/TS, Python, C/C++
+ */
+
+
+
+/**
+ * 根据文件后缀获取语言类型
+ */
+function getFileType(filePath) {
+    const ext = filePath.split('.').pop().toLowerCase();
+    const map = {
+        js: 'js', jsx: 'js', ts: 'js', tsx: 'js', mjs: 'js',
+        py: 'python',
+        c: 'c', cpp: 'c', cc: 'c', h: 'c', hpp: 'c'
+    };
+    return map[ext] || null;
+}
+
+/**
+ * 解析 JS/TS 的依赖
+ */
+function parseJsDeps(content) {
+    const deps = [];
+    
+    // 增强版正则：支持多行导入及更复杂的 import 语法
+    const importRegex = /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
+    
+    // require('./path')
+    const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    
+    // export { x } from './path'
+    const exportFromRegex = /export\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g;
+    
+    let match;
+    while ((match = importRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    while ((match = requireRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    while ((match = exportFromRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    return deps;
+}
+
+/**
+ * 解析 Python 的依赖
+ */
+function parsePythonDeps(content) {
+    const deps = [];
+    
+    // 1. 处理 from xxx import (a, b) 多行或单行括号格式
+    const fromImportParenthesesRegex = /from\s+([\w.]+)\s+import\s*\(([\s\S]*?)\)/g;
+    
+    // 2. 处理普通的 from xxx import yyy
+    const fromImportRegex = /from\s+([\w.]+)\s+import\s+[\w.*,\s]+$/gm;
+    
+    // 3. 处理 import xxx
+    const importRegex = /^import\s+([\w.]+)/gm;
+    
+    let match;
+    
+    // 解析带括号的导入
+    while ((match = fromImportParenthesesRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 解析普通的 from 导入 (排除已经匹配的括号内容)
+    const simpleFromRegex = /from\s+([\w.]+)\s+import(?!\s*\()/g;
+    while ((match = simpleFromRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 解析直接 import
+    while ((match = importRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    return deps;
+}
+
+/**
+ * 解析 C/C++ 的依赖
+ */
+function parseCDeps(content) {
+    const deps = [];
+    
+    // #include "header.h" (本地头文件)
+    const includeRegex = /#include\s*"([^"]+)"/g;
+    
+    let match;
+    while ((match = includeRegex.exec(content)) !== null) {
+        deps.push(match[1]);
+    }
+    
+    // 忽略 #include <xxx> 系统头文件
+    return deps;
+}
+
+/**
+ * 解析文件依赖
+ */
+function parseDeps(content, fileType) {
+    switch (fileType) {
+        case 'js': return parseJsDeps(content);
+        case 'python': return parsePythonDeps(content);
+        case 'c': return parseCDeps(content);
+        default: return [];
+    }
+}
+
+/**
+ * 将依赖路径解析为项目中的实际文件路径
+ */
+function resolveDep(dep, currentFile, fileType) {
+    const currentDir = currentFile.substring(0, currentFile.lastIndexOf('/')) || '.';
+    
+    // 忽略第三方包
+    if (fileType === 'js' && !dep.startsWith('.') && !dep.startsWith('/')) {
+        return null; // node_modules
+    }
+    
+    if (fileType === 'python') {
+        // 1. 预处理：提取纯路径并处理变体
+        const isRelative = dep.startsWith('.');
+        const cleanDep = dep.replace(/^\.+/, '');
+        const dotPath = cleanDep.replace(/\./g, '/');
+        
+        // 生成路径变体：test_lab -> [test_lab, test-lab]
+        const pathVariants = [dotPath];
+        if (dotPath.includes('_')) pathVariants.push(dotPath.replace(/_/g, '-'));
+
+        for (const p of pathVariants) {
+            const candidates = [];
+            if (isRelative) {
+                // 相对导入：只在当前目录下找
+                candidates.push(resolvePath(currentDir, p));
+            } else {
+                // 绝对/普通导入：先找根目录，再找当前目录（兼容性最强）
+                candidates.push(p); 
+                candidates.push(resolvePath(currentDir, p));
+            }
+
+            for (const cand of candidates) {
+                if (!cand) continue;
+                // 验证所有可能的后缀
+                const fileTry = cand + '.py';
+                const pkgTry = cand + '/__init__.py';
+                
+                if (fs.hasFile(fileTry)) return fileTry;
+                if (fs.hasFile(pkgTry)) return pkgTry;
+            }
+        }
+        return null;
+    }
+    
+    if (fileType === 'js') {
+        // 处理相对路径
+        let resolved = resolvePath(currentDir, dep);
+        
+        // 尝试补全后缀
+        const extensions = ['.js', '.ts', '.jsx', '.tsx', '.mjs', '/index.js', '/index.ts'];
+        
+        if (fs.hasFile(resolved)) {
+            return resolved;
+        }
+        
+        for (const ext of extensions) {
+            const tryPath = resolved + ext;
+            if (fs.hasFile(tryPath)) {
+                return tryPath;
+            }
+        }
+        
+        return null;
+    }
+    
+    if (fileType === 'c') {
+        // C/C++ 头文件，直接相对路径
+        const resolved = resolvePath(currentDir, dep);
+        return fs.hasFile(resolved) ? resolved : null;
+    }
+    
+    return null;
+}
+
+/**
+ * 解析相对路径
+ */
+function resolvePath(base, relative) {
+    // 确保处理绝对路径和相对路径的一致性
+    const isAbsolute = relative.startsWith('/');
+    const parts = isAbsolute ? relative.split('/') : [...base.split('/'), ...relative.split('/')];
+    
+    const resultParts = [];
+    for (const part of parts) {
+        if (part === '..') {
+            if (resultParts.length > 0) resultParts.pop();
+        } else if (part !== '.' && part !== '') {
+            resultParts.push(part);
+        }
+    }
+    // 始终返回相对于项目根目录的路径，不带前导斜杠
+    return resultParts.join('/');
+}
+
+/**
+ * 分析文件的所有依赖（递归）
+ * @param {string} filePath - 起始文件路径
+ * @param {number} maxDepth - 最大递归深度
+ * @returns {Promise<string[]>} - 依赖文件路径列表
+ */
+async function analyzeDeps(filePath, maxDepth = 2) {
+    const visited = new Set();
+    const result = [];
+    
+    async function analyze(path, depth) {
+        if (depth > maxDepth || visited.has(path)) return;
+        visited.add(path);
+        
+        const fileType = getFileType(path);
+        if (!fileType) return;
+        
+        const content = await fs.readFile(path);
+        if (!content) return;
+        
+        const deps = parseDeps(content, fileType);
+        
+        for (const dep of deps) {
+            const resolved = resolveDep(dep, path, fileType);
+            if (resolved && !visited.has(resolved)) {
+                // 确保先分析子依赖，再将当前确认的依赖放入结果集，且避免重复
+                if (!result.includes(resolved)) {
+                    result.push(resolved);
+                }
+                await analyze(resolved, depth + 1);
+            }
+        }
+    }
+    
+    await analyze(filePath, 0);
+    return result;
+}
+
+/**
+ * 获取文件及其依赖的完整列表
+ */
+async function getFileWithDeps(filePath) {
+    const deps = await analyzeDeps(filePath);
+    return {
+        main: filePath,
+        deps: deps,
+        all: [filePath, ...deps]
+    };
+}
+
+const depsAnalyzer = {
+    analyzeDeps,
+    getFileWithDeps,
+    getFileType
+};
+
+
+// ========== src/gemini.js ==========
+/**
+ * Gemini 交互模块 - 处理与 Gemini 页面的交互
+ */
+
+
+
+
+
+
+
+
+const gemini = {
+    observer: null,
+    processedBlocks: new WeakSet(),
+
+    // 插入文本到 Gemini 输入框
+    insertToInput(text) {
+        const selectors = [
+            'rich-textarea .ql-editor',
+            'rich-textarea [contenteditable="true"]',
+            '.ql-editor[contenteditable="true"]',
+            'div[contenteditable="true"]'
+        ];
+        
+        let inputEl = null;
+        for (const sel of selectors) {
+            inputEl = document.querySelector(sel);
+            if (inputEl) break;
+        }
+        
+        if (!inputEl) {
+            showToast('找不到输入框', 'error');
+            return false;
+        }
+        
+        inputEl.focus();
+        // 使用 execCommand 或模拟更自然的输入，确保编辑器状态同步
+        const existing = inputEl.innerText || '';
+        const newContent = existing ? existing + '\n\n' + text : text;
+        
+        // 优先使用 innerText 触发编辑器的内部渲染逻辑
+        inputEl.innerText = newContent;
+        
+        // 连续发送两个事件确保编辑器感应
+        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(inputEl);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        
+        // 返回新增的 token 数
+        return { success: true, tokens: estimateTokens(text) };
+    },
+
+    sendFile(filePath, content) {
+        const lang = getLanguage(filePath);
+        const text = `文件 \`${filePath}\`:\n\n\`\`\`${lang}\n${content}\n\`\`\``;
+        const result = this.insertToInput(text);
+        if (result.success) {
+            showToast(`已发送: ${filePath.split('/').pop()} (~${formatTokens(result.tokens)} tokens)`);
+        }
+        return result.success;
+    },
+
+    sendStructure(name, structure) {
+        const text = `目录 \`${name}\` 结构:\n\n\`\`\`\n${structure}\`\`\``;
+        const result = this.insertToInput(text);
+        if (result.success) {
+            showToast(`已发送目录 (~${formatTokens(result.tokens)} tokens)`);
+        }
+        return result.success;
+    },
+
+    // 开始监听 AI 输出
+    startWatching() {
+        if (this.observer) return;
+        
+        this.observer = new MutationObserver(() => {
+            this._processCodeBlocks();
+        });
+        
+        this.observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        this._processCodeBlocks();
+        console.log('[Gemini] 开始监听代码块');
+    },
+
+    _processCodeBlocks() {
+        const codeBlocks = document.querySelectorAll('code-block, pre > code, .code-block');
+        
+        codeBlocks.forEach(block => {
+            if (this.processedBlocks.has(block)) return;
+            this.processedBlocks.add(block);
+            
+            const container = block.closest('code-block') || block.closest('pre') || block;
+            if (container.querySelector('.ide-action-bar')) return;
+            
+            const text = block.textContent || '';
+            
+            // 防误触：只跳过明确标记忽略的
+            if (text.includes('IGNORE_IDE_ACTION')) return;
+
+            const fileMatch = extractFilePath(text);
+            // 兼容 6-7 个符号的格式
+            const hasSearchReplace = /<{6,7} SEARCH/.test(text) && />{6,7} REPLACE/.test(text);
+            const hasDelete = /<{6,7} DELETE/.test(text) && />{6,7} END/.test(text);
+            
+            // 简化判断：有完整的 SEARCH/REPLACE 结构，或有 FILE: 标记，或有 DELETE 结构
+            if (fileMatch || hasSearchReplace || hasDelete) {
+                this._injectActionBar(container, text, fileMatch);
+            }
+        });
+    },
+
+    _injectActionBar(container, text, filePath) {
+        const bar = document.createElement('div');
+        bar.className = 'ide-action-bar';
+        Object.assign(bar.style, {
+            display: 'flex', gap: '8px', padding: '8px',
+            background: 'var(--ide-hint-bg, #363739)', 
+            borderRadius: '0 0 6px 6px',
+            borderTop: '1px solid var(--ide-border, #444746)', 
+            flexWrap: 'wrap'
+        });
+
+        // 解析删除指令
+        const deletes = parseDelete(text);
+        if (deletes.length > 0) {
+            // 多文件时显示批量删除按钮
+            if (deletes.length > 1) {
+                const batchBtn = this._createButton(`🗑️ 批量删除 (${deletes.length}个文件)`, async () => {
+                    const confirmMsg = `确定要删除这 ${deletes.length} 个文件吗？\n\n${deletes.map(d => '• ' + d.file).join('\n')}`;
+                    if (!confirm(confirmMsg)) return;
+
+                    batchBtn.textContent = '正在处理...';
+                    let successCount = 0;
+                    
+                    for (const del of deletes) {
+                        const success = await fs.deleteFile(del.file);
+                        if (success) successCount++;
+                    }
+
+                    if (successCount === deletes.length) {
+                        batchBtn.textContent = `✅ 已删除 ${successCount} 个文件`;
+                        batchBtn.style.background = '#059669';
+                        showToast(`删除成功: 共 ${successCount} 个文件`);
+                    } else {
+                        batchBtn.textContent = `⚠️ 成功 ${successCount}/${deletes.length}`;
+                        batchBtn.style.background = '#f59e0b';
+                        showToast(`部分删除失败: 成功 ${successCount} 个`, 'error');
+                    }
+                    
+                    window.dispatchEvent(new CustomEvent('ide-refresh-tree'));
+                });
+                batchBtn.style.background = '#dc2626';
+                bar.appendChild(batchBtn);
+            }
+            
+            // 每个文件单独的删除按钮
+            deletes.forEach(del => {
+                const btn = this._createButton(`🗑️ 删除 → ${del.file}`, async () => {
+                    if (!confirm(`确定删除文件 "${del.file}"？`)) return;
+                    
+                    btn.textContent = '正在删除...';
+                    const success = await fs.deleteFile(del.file);
+                    
+                    if (success) {
+                        btn.textContent = '✅ 已删除';
+                        btn.style.background = '#059669';
+                        showToast(`已删除: ${del.file}`);
+                        window.dispatchEvent(new CustomEvent('ide-refresh-tree'));
+                    } else {
+                        btn.textContent = '❌ 删除失败';
+                        btn.style.background = '#f59e0b';
+                        showToast(`删除失败: ${del.file}`, 'error');
+                    }
+                });
+                btn.style.background = '#dc2626';
+                bar.appendChild(btn);
+            });
+        }
+
+        // 解析增量修改块
+        const patches = parseSearchReplace(text);
+        
+        if (patches.length > 0) {
+            // 单个修改按钮（同步创建，异步检查状态）
+            patches.forEach((patch, idx) => {
+                const btn = document.createElement('button');
+                Object.assign(btn.style, {
+                    background: '#2563eb', color: 'white', border: 'none',
+                    padding: '6px 12px', borderRadius: '4px', cursor: 'pointer',
+                    fontSize: '12px', fontWeight: 'bold'
+                });
+                btn.onmouseover = () => { btn.style.opacity = '0.8'; };
+                btn.onmouseout = () => { btn.style.opacity = '1'; };
+
+                const btnText = patch.isDelete 
+                    ? `🗑️ 删除代码 #${idx + 1} → ${patch.file || '?'}`
+                    : `🔧 应用修改 #${idx + 1} → ${patch.file || '?'}`;
+                btn.textContent = btnText;
+                
+                if (patch.isDelete) {
+                    btn.style.background = '#f59e0b';
+                }
+
+                btn.onclick = async () => {
+                    if (!patch.file) {
+                        const input = prompt('请输入目标文件路径:');
+                        if (!input) return;
+                        patch.file = input;
+                    }
+                    await this._applyPatch(patch, btn, bar);
+                };
+                
+                bar.appendChild(btn);
+
+                // 异步检查是否已应用（不阻塞按钮创建）
+                if (patch.file) {
+                    checkIfApplied(patch.file, patch.search, patch.replace, fs).then(status => {
+                        if (status.applied) {
+                            btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
+                            btn.style.background = '#059669';
+                            this._addUndoButtonForPatch(bar, patch);
+                        }
+                    });
+                }
+            });
+        } else if (text.includes('FILE:')) {
+            // 解析所有 FILE: 块
+            const filesToProcess = parseMultipleFiles(text);
+            
+            if (filesToProcess.length > 1) {
+                // 批量创建按钮
+                const batchBtn = this._createButton(`➕ 批量创建/覆盖 (${filesToProcess.length}个文件)`, async () => {
+                    batchBtn.textContent = '正在处理...';
+                    let successCount = 0;
+                    for (const file of filesToProcess) {
+                        const exists = fs.hasFile(file.path);
+                        const success = exists 
+                            ? await fs.writeFile(file.path, file.content) 
+                            : await fs.createFile(file.path, file.content);
+                        if (success) successCount++;
+                    }
+                    if (successCount === filesToProcess.length) {
+                        batchBtn.textContent = `✅ 已处理 ${successCount} 个文件`;
+                        batchBtn.style.background = '#059669';
+                    } else {
+                        batchBtn.textContent = `⚠️ 成功 ${successCount}/${filesToProcess.length}`;
+                        batchBtn.style.background = '#f59e0b';
+                    }
+                    window.dispatchEvent(new CustomEvent('ide-refresh-tree'));
+                });
+                batchBtn.style.background = '#8b5cf6'; // 紫色区分
+                bar.appendChild(batchBtn);
+            }
+            
+            // 每个文件单独的按钮
+            filesToProcess.forEach(file => {
+                const exists = fs.hasFile(file.path);
+                const btnText = file.isOverwrite && exists 
+                    ? `📝 覆盖 → ${file.path}` 
+                    : (exists ? `💾 保存 → ${file.path}` : `➕ 创建 → ${file.path}`);
+                
+                const btn = this._createButton(btnText, async () => {
+                    if (file.isOverwrite && exists && !confirm(`确定覆盖 "${file.path}"？`)) return;
+                    btn.textContent = '处理中...';
+                    const success = exists 
+                        ? await fs.writeFile(file.path, file.content) 
+                        : await fs.createFile(file.path, file.content);
+                    if (success) {
+                        btn.textContent = '✅ 已成功';
+                        btn.style.background = '#059669';
+                        if (!exists) {
+                            window.dispatchEvent(new CustomEvent('ide-refresh-tree'));
+                        } else {
+                            this._addUndoButton(bar, file.path);
+                        }
+                    } else {
+                        btn.textContent = '❌ 失败';
+                        btn.style.background = '#dc2626';
+                    }
+                });
+                if (file.isOverwrite && exists) btn.style.background = '#f59e0b';
+                bar.appendChild(btn);
+            });
+        }
+
+        if (bar.children.length > 0) {
+            container.style.position = 'relative';
+            container.appendChild(bar);
+        }
+    },
+
+    _createButton(text, onClick) {
+        const btn = document.createElement('button');
+        btn.textContent = text;
+        Object.assign(btn.style, {
+            background: '#2563eb', color: 'white', border: 'none',
+            padding: '6px 12px', borderRadius: '4px', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 'bold'
+        });
+        btn.onmouseover = () => { btn.style.opacity = '0.8'; };
+        btn.onmouseout = () => { btn.style.opacity = '1'; };
+        btn.onclick = onClick;
+        return btn;
+    },
+
+    // 应用增量修改
+    async _applyPatch(patch, btn, bar) {
+        const { file, search, replace } = patch;
+        
+        if (!fs.hasFile(file)) {
+            showToast('文件不存在: ' + file, 'error');
+            btn.textContent = '❌ 文件不存在';
+            btn.style.background = '#dc2626';
+            return;
+        }
+        
+        const content = await fs.readFile(file);
+        if (content === null) {
+            showToast('读取失败', 'error');
+            btn.textContent = '❌ 读取失败';
+            btn.style.background = '#dc2626';
+            return;
+        }
+        
+        const result = tryReplace(content, search, replace);
+        if (!result.success) {
+            showToast('未找到匹配内容', 'error');
+            btn.textContent = '❌ 未匹配';
+            btn.style.background = '#dc2626';
+            return;
+        }
+
+        // 临时禁用按钮，防止重复点击触发多个对话框
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+
+        // JS/TS 语法检查 - 防止 Gemini 生成的错误代码被应用
+        const syntaxCheck = checkJsSyntax(result.content, file);
+        if (!syntaxCheck.valid) {
+            const shortError = syntaxCheck.error.length > 30 
+                ? syntaxCheck.error.slice(0, 30) + '...' 
+                : syntaxCheck.error;
+            showToast(`❌ 语法错误: ${syntaxCheck.error}`, 'error');
+            btn.textContent = `❌ ${shortError}`;
+            btn.title = `语法错误: ${syntaxCheck.error}`; // 悬停显示完整错误
+            btn.style.background = '#dc2626';
+            console.error('[Gemini] 语法检查失败:', file, syntaxCheck.error);
+            return;
+        }
+
+        const confirmed = await showPreviewDialog(file, search, replace);
+        if (!confirmed) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            return;
+        }
+        
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.textContent = '应用中...';
+        const success = await fs.writeFile(file, result.content);
+        if (success) {
+            btn.textContent = '✅ 已应用';
+            btn.style.background = '#059669';
+            showToast('已修改: ' + file);
+            markAsApplied(file, search);
+            this._addUndoButtonForPatch(bar, patch);
+        } else {
+            btn.textContent = '❌ 写入失败';
+            btn.style.background = '#dc2626';
+        }
+    },
+
+    _addUndoButton(bar, filePath) {
+        const fileName = filePath.split('/').pop();
+        const undoBtn = this._createButton(`↩️ 撤销 → ${fileName}`, async () => {
+            const result = await fs.revertFile(filePath);
+            if (result.success) {
+                showToast('已撤销: ' + filePath);
+                undoBtn.remove();
+            } else {
+                showToast(result.error || '撤销失败', 'error');
+            }
+        });
+        undoBtn.className = 'ide-undo-btn';
+        undoBtn.title = filePath;
+        undoBtn.style.background = '#f59e0b';
+        bar.appendChild(undoBtn);
+    },
+
+    _addUndoButtonForPatch(bar, patch) {
+        const fileName = patch.file.split('/').pop();
+        const undoBtn = this._createButton(`↩️ 撤销 → ${fileName}`, async () => {
+            const result = await fs.revertFile(patch.file);
+            if (result.success) {
+                showToast('已撤销: ' + patch.file);
+                unmarkAsApplied(patch.file, patch.search);
+                undoBtn.remove();
+            } else {
+                showToast(result.error || '撤销失败', 'error');
+            }
+        });
+        undoBtn.className = 'ide-undo-btn';
+        undoBtn.title = patch.file;
+        undoBtn.style.background = '#f59e0b';
+        bar.appendChild(undoBtn);
+    },
+
+};
+
+
+// ========== src/ui.js ==========
+/**
+ * UI 模块 - 侧边栏和文件树渲染
+ */
+
+
+
+
+
+
+
+
+
+class UI {
+    constructor() {
+        this.folderStates = new Map();
+        this.currentTree = null;
+    }
+
+    init() {
+        if (document.getElementById('ide-bridge-root')) return;
+        
+        const root = document.createElement('div');
+        root.id = 'ide-bridge-root';
+        
+        root.appendChild(this._createSidebar());
+        root.appendChild(this._createTrigger());
+        root.appendChild(this._createContextMenu());
+        
+        // 🎨 注入主题样式 (使用 theme.js 模块)
+        root.appendChild(initThemeStyle());
+
+        document.body.appendChild(root);
+        
+        // 监听主题变化（定时检测，因为 Gemini 可能动态切换）
+        setInterval(() => updateTheme(), 2000);
+        
+        document.addEventListener('click', () => {
+            const menu = document.getElementById('ide-context-menu');
+            if (menu) menu.style.display = 'none';
+        });
+
+        // 监听文件树刷新事件
+        window.addEventListener('ide-refresh-tree', () => {
+            if (this.currentTree) {
+                this.refreshTree(); // 👈 改为调用静默刷新
+            }
+        });
+    }
+
+    // 🔄 新增：静默刷新 UI
+    async refreshTree() {
+        const result = await fs.refreshProject();
+        if (result.success) {
+            this.currentTree = result.tree;
+            this._renderTree(result.tree);
+            // 更新触发器状态
+            const trigger = document.getElementById('ide-trigger');
+            if (trigger && result.rootName) {
+                trigger.textContent = '✅ ' + result.rootName;
+            }
+        }
+    }
+
+    // 🛡️ 安全的 SVG 图标生成器 (Trusted Types Safe)
+    _createIcon(name, size = 14, color = 'currentColor') {
+        const icons = {
+            folder: 'M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z',
+            file: 'M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z M13 2v7h7',
+            logo: 'M16 18l6-6-6-6 M8 6l-6 6 6 6 M12.5 4l-3 16',
+            close: 'M18 6L6 18M6 6l12 12',
+            arrowRight: 'M9 18l6-6-6-6',
+            arrowDown: 'M6 9l6 6 6-6'
+        };
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', size);
+        svg.setAttribute('height', size);
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', color);
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.classList.add('ide-icon');
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', icons[name] || icons.file);
+        svg.appendChild(path);
+        
+        return svg;
+    }
+
+    _createTrigger() {
+        const trigger = document.createElement('div');
+        trigger.id = 'ide-trigger';
+        trigger.textContent = '⚡️';
+        Object.assign(trigger.style, {
+            position: 'fixed', bottom: '20px', right: '20px', // 改到右下角，符合工具直觉
+            zIndex: '2147483646', width: '40px', height: '40px',
+            background: 'var(--ide-bg)', color: 'var(--ide-text)',
+            border: '1px solid var(--ide-border)', borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', boxShadow: 'var(--ide-shadow)',
+            fontSize: '18px', transition: 'all 0.2s', userSelect: 'none'
+        });
+        
+        trigger.classList.add('ide-glass'); // 添加毛玻璃
+
+        // 悬停展开效果
+        trigger.onmouseover = () => {
+            trigger.style.width = 'auto';
+            trigger.style.borderRadius = '20px';
+            trigger.style.padding = '0 12px';
+            trigger.textContent = '⚡️ IDE Bridge';
+        };
+        trigger.onmouseout = () => {
+            // 如果没连接项目，恢复原状
+            if (!this.currentTree) {
+                trigger.style.width = '40px';
+                trigger.style.padding = '0';
+                trigger.style.borderRadius = '50%';
+                trigger.textContent = '⚡️';
+            }
+        };
+
+        trigger.onclick = () => {
+            const sidebar = document.getElementById('ide-sidebar');
+            // 切换显示状态
+            const isHidden = sidebar.style.transform === 'translateX(100%)';
+            sidebar.style.transform = isHidden ? 'translateX(0)' : 'translateX(100%)';
+        };
+        return trigger;
+    }
+
+    _createSidebar() {
+        const sidebar = document.createElement('div');
+        sidebar.id = 'ide-sidebar';
+        sidebar.classList.add('ide-glass'); // 使用 CSS 类控制背景
+        
+        Object.assign(sidebar.style, {
+            position: 'fixed', right: '0', top: '0',
+            width: '360px', height: '100vh',
+            background: 'var(--ide-bg)', // 使用变量
+            borderLeft: '1px solid var(--ide-border)',
+            zIndex: '2147483647', 
+            transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)', // 更平滑的动画
+            transform: 'translateX(100%)', // 默认隐藏 (使用 transform 性能更好)
+            color: 'var(--ide-text)', display: 'flex', flexDirection: 'column',
+            boxShadow: 'var(--ide-shadow)', 
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            fontSize: '13px', lineHeight: '1.5'
+        });
+
+        // 标题栏
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            padding: '12px 16px', borderBottom: '1px solid var(--ide-border)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: 'transparent' // 透明背景，透出 sidebar 的 glass 效果
+        });
+        
+        const title = document.createElement('div');
+        title.style.display = 'flex';
+        title.style.alignItems = 'center';
+        title.style.gap = '8px';
+        title.style.fontWeight = '600';
+        title.style.color = 'var(--ide-text)';
+        title.style.fontSize = '14px';
+        
+        const logoIcon = this._createIcon('logo', 16, 'var(--ide-accent)');
+        const titleText = document.createElement('span');
+        titleText.textContent = 'Gemini IDE';
+        
+        // 新增：在线状态指示灯
+        const statusDot = document.createElement('div');
+        Object.assign(statusDot.style, {
+            width: '8px', height: '8px', borderRadius: '50%',
+            background: '#059669', marginLeft: '4px',
+            boxShadow: '0 0 8px #059669',
+            display: this.currentTree ? 'block' : 'none'
+        });
+        statusDot.id = 'ide-status-dot';
+        
+        title.appendChild(logoIcon);
+        title.appendChild(titleText);
+        title.appendChild(statusDot);
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.style.display = 'flex';
+        closeBtn.appendChild(this._createIcon('close', 18, 'var(--ide-text-secondary)'));
+        Object.assign(closeBtn.style, {
+            background: 'none', border: 'none',
+            cursor: 'pointer', padding: '4px', opacity: '0.7', transition: 'opacity 0.2s'
+        });
+        closeBtn.onmouseover = () => closeBtn.style.opacity = '1';
+        closeBtn.onmouseout = () => closeBtn.style.opacity = '0.7';
+        closeBtn.onclick = () => { sidebar.style.transform = 'translateX(100%)'; };
+        
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        sidebar.appendChild(header);
+
+        // 操作栏
+        const actionBar = document.createElement('div');
+        actionBar.id = 'ide-action-bar';
+        Object.assign(actionBar.style, {
+            padding: '10px', borderBottom: '1px solid var(--ide-border)',
+            display: 'none', gap: '8px'
+        });
+        sidebar.appendChild(actionBar);
+
+        // 文件树
+        const treeContainer = document.createElement('div');
+        treeContainer.id = 'ide-tree-container';
+        Object.assign(treeContainer.style, {
+            flex: '1', overflowY: 'auto', padding: '8px', fontSize: '13px'
+        });
+        
+        // 空状态
+        const emptyState = this._createEmptyState();
+        treeContainer.appendChild(emptyState);
+        sidebar.appendChild(treeContainer);
+
+        // 底部
+        const footer = document.createElement('div');
+        Object.assign(footer.style, {
+            padding: '8px', borderTop: '1px solid var(--ide-border)',
+            fontSize: '10px', color: 'var(--ide-text-secondary)', textAlign: 'center'
+        });
+        footer.textContent = 'V1.0.0 | 支持版本回退';
+        sidebar.appendChild(footer);
+
+        return sidebar;
+    }
+
+    _createEmptyState() {
+        const emptyState = document.createElement('div');
+        Object.assign(emptyState.style, { textAlign: 'center', marginTop: '100px', color: '#6b7280' });
+        
+        const icon = document.createElement('div');
+        icon.textContent = '📁';
+        icon.style.fontSize = '40px';
+        icon.style.marginBottom = '16px';
+        
+        const text = document.createElement('p');
+        text.textContent = '未连接本地项目';
+        
+        const connectBtn = document.createElement('button');
+        connectBtn.id = 'ide-action-connect';
+        connectBtn.textContent = '连接文件夹';
+        Object.assign(connectBtn.style, {
+            marginTop: '16px', background: '#2563eb', color: 'white',
+            border: 'none', padding: '10px 24px', borderRadius: '6px',
+            cursor: 'pointer', fontWeight: 'bold'
+        });
+        connectBtn.onclick = () => this.handleConnect();
+        
+        emptyState.appendChild(icon);
+        emptyState.appendChild(text);
+        emptyState.appendChild(connectBtn);
+        return emptyState;
+    }
+
+    _createContextMenu() {
+        const menu = document.createElement('div');
+        menu.id = 'ide-context-menu';
+        // 🎨 移除固定色值，改用主题变量适配亮/暗模式
+        Object.assign(menu.style, {
+            position: 'fixed', display: 'none', 
+            background: 'var(--ide-bg)', 
+            border: '1px solid var(--ide-border)', 
+            borderRadius: '6px',
+            boxShadow: 'var(--ide-shadow)', 
+            zIndex: '2147483648',
+            minWidth: '160px', padding: '4px 0',
+            backdropFilter: 'blur(12px)'
+        });
+        return menu;
+    }
+
+    async handleConnect() {
+        const connectBtn = document.getElementById('ide-action-connect');
+        if (connectBtn) connectBtn.textContent = '连接中...';
+        
+        const result = await fs.openProject();
+        
+        if (result.success) {
+            this.currentTree = result.tree;
+            
+            const trigger = document.getElementById('ide-trigger');
+            if (trigger) {
+                trigger.textContent = '✅ ' + result.rootName;
+                trigger.style.background = '#059669';
+                trigger.style.borderColor = '#34d399';
+            }
+            
+            this._renderActionBar();
+            this._renderTree(result.tree);
+
+            // 更新状态灯
+            const dot = document.getElementById('ide-status-dot');
+            if (dot) dot.style.display = 'block';
+            
+            // 开始监听 AI 输出
+            gemini.startWatching();
+        } else {
+            if (connectBtn) connectBtn.textContent = '连接文件夹';
+        }
+    }
+
+    _renderActionBar() {
+        const actionBar = document.getElementById('ide-action-bar');
+        if (!actionBar) return;
+        
+        // 容器样式优化
+        Object.assign(actionBar.style, {
+            display: 'flex', gap: '8px', padding: '12px 16px',
+            borderBottom: '1px solid var(--ide-border)',
+            background: 'transparent'
+        });
+
+        while (actionBar.firstChild) actionBar.removeChild(actionBar.firstChild);
+        
+        // 1. 提示词
+        const promptBtn = this._createButton('🤖 提示词', () => {
+            const result = gemini.insertToInput(getSystemPrompt());
+            if (result.success) {
+                showToast(`已发送系统协议 (~${formatTokens(result.tokens)} tokens)`);
+            }
+        });
+        // 移除 primary 类，回归统一的 Ghost 风格
+        actionBar.appendChild(promptBtn);
+
+        // 2. 发送目录
+        const sendBtn = this._createButton('📋 发送目录', () => {
+            const structure = fs.generateFullStructure(this.currentTree);
+            const text = `项目 "${fs.projectName}" 目录:\n\n\`\`\`\n${structure}\`\`\``;
+            const result = gemini.insertToInput(text);
+            if (result.success) {
+                showToast(`已发送目录 (~${formatTokens(result.tokens)} tokens)`);
+            }
+        });
+        actionBar.appendChild(sendBtn);
+        
+        // 3. 刷新
+        const refreshBtn = this._createButton('🔄 刷新', () => this.refreshTree());
+        actionBar.appendChild(refreshBtn);
+    }
+
+    // 使用纯 CSS 类控制样式，避免 JS 闪烁
+    _createButton(text, onClick) {
+        const btn = document.createElement('button');
+        btn.textContent = text;
+        btn.className = 'ide-btn'; // 应用 CSS 类
+        btn.onclick = onClick;
+        return btn;
+    }
+
+    _renderTree(tree) {
+        const container = document.getElementById('ide-tree-container');
+        if (!container) return;
+        
+        while (container.firstChild) container.removeChild(container.firstChild);
+        
+        const hint = document.createElement('div');
+        Object.assign(hint.style, {
+            padding: '6px 8px', marginBottom: '8px', background: 'var(--ide-hint-bg)',
+            borderRadius: '4px', fontSize: '11px', color: 'var(--ide-hint-text)'
+        });
+        hint.textContent = '💡 点击文件发送 | 右键文件夹更多';
+        container.appendChild(hint);
+        
+        this._buildTreeNodes(container, tree, 0);
+    }
+
+    _buildTreeNodes(container, nodes, level) {
+        nodes.forEach(node => {
+            const item = document.createElement('div');
+            Object.assign(item.style, {
+                padding: '5px 4px', paddingLeft: (level * 14 + 4) + 'px',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                cursor: 'pointer', borderRadius: '3px', margin: '1px 0',
+                display: 'flex', alignItems: 'center', gap: '4px'
+            });
+            item.title = node.path;
+            item.classList.add('ide-tree-item'); // 使用 class 控制 hover
+            // 移除原本的 JS hover 逻辑
+            // item.onmouseover = ... 
+            // item.onmouseout = ...
+
+            if (node.kind === 'directory') {
+                const isExpanded = this.folderStates.get(node.path) || false;
+                
+                const arrow = this._createIcon(isExpanded ? 'arrowDown' : 'arrowRight', 12, 'var(--ide-text-secondary)');
+                Object.assign(arrow.style, { width: '16px', minWidth: '16px' });
+                
+                const icon = this._createIcon('folder', 14, 'var(--ide-text-folder)');
+                
+                const name = document.createElement('span');
+                name.textContent = node.name;
+                name.style.color = 'var(--ide-text)';
+                name.style.fontWeight = '500';
+                
+                item.appendChild(arrow);
+                item.appendChild(icon);
+                item.appendChild(name);
+                
+                item.onclick = () => {
+                    this.folderStates.set(node.path, !isExpanded);
+                    this._renderTree(this.currentTree);
+                };
+                
+                item.oncontextmenu = (e) => this._showContextMenu(e, node);
+                
+                container.appendChild(item);
+                
+                if (isExpanded && node.children) {
+                    this._buildTreeNodes(container, node.children, level + 1);
+                }
+            } else {
+                const spacer = document.createElement('span');
+                spacer.style.width = '16px'; 
+                spacer.style.minWidth = '16px';
+                
+                const icon = this._createIcon('file', 14, 'var(--ide-text-secondary)');
+                
+                const name = document.createElement('span');
+                name.textContent = node.name;
+                name.style.color = 'var(--ide-text-secondary)';
+                
+                item.appendChild(spacer);
+                item.appendChild(icon);
+                item.appendChild(name);
+                
+                item.onclick = async () => {
+                    item.style.opacity = '0.5';
+                    const content = await fs.readFile(node.path);
+                    item.style.opacity = '1';
+                    
+                    if (content !== null) {
+                        gemini.sendFile(node.path, content);
+                        // sendFile 内部已经 showToast 了
+                    }
+                };
+
+                // 文件右键菜单
+                item.oncontextmenu = (e) => this._showFileContextMenu(e, node);
+                
+                container.appendChild(item);
+            }
+        });
+    }
+
+    _showContextMenu(e, node) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const menu = document.getElementById('ide-context-menu');
+        if (!menu) return;
+        
+        while (menu.firstChild) menu.removeChild(menu.firstChild);
+        
+        // 发送目录结构
+        menu.appendChild(this._createMenuItem('📋 发送目录结构', () => {
+            const structure = fs.generateStructure(node);
+            gemini.sendStructure(node.path, structure);
+        }));
+        
+        // 发送所有文件
+        menu.appendChild(this._createMenuItem('📦 发送所有文件', async () => {
+            showToast('读取中...', 'info');
+            const content = await this._collectFiles(node);
+            const result = gemini.insertToInput(content);
+            if (result.success) {
+                showToast(`已发送 (~${formatTokens(result.tokens)} tokens)`);
+            }
+        }));
+
+        // 分隔线
+        menu.appendChild(this._createMenuDivider());
+
+        // 新建文件
+        menu.appendChild(this._createMenuItem('➕ 新建文件', async () => {
+            const fileName = prompt('输入文件名:');
+            if (!fileName || !fileName.trim()) return;
+            const newPath = node.path + '/' + fileName.trim();
+            if (await fs.createFile(newPath, '')) {
+                showToast('已创建: ' + fileName);
+                await this.refreshTree(); // 👈 修复：静默刷新
+            } else {
+                showToast('创建失败', 'error');
+            }
+        }));
+
+        // 新建文件夹
+        menu.appendChild(this._createMenuItem('📁 新建文件夹', async () => {
+            const folderName = prompt('输入文件夹名:');
+            if (!folderName || !folderName.trim()) return;
+            const newPath = node.path + '/' + folderName.trim() + '/.gitkeep';
+            if (await fs.createFile(newPath, '')) {
+                showToast('已创建: ' + folderName);
+                await this.refreshTree(); // 👈 修复：静默刷新
+            } else {
+                showToast('创建失败', 'error');
+            }
+        }));
+
+        // 分隔线
+        menu.appendChild(this._createMenuDivider());
+
+        // 删除目录
+        menu.appendChild(this._createMenuItem('🗑️ 删除目录', async () => {
+            if (!confirm(`确定删除目录 "${node.name}" 及其所有内容？\n\n⚠️ 此操作不可撤销！`)) return;
+            if (await fs.deleteDirectory(node.path)) {
+                showToast('已删除: ' + node.name);
+                await this.refreshTree(); // 👈 修复：静默刷新
+            } else {
+                showToast('删除失败', 'error');
+            }
+        }, '#dc2626'));
+        
+        menu.style.display = 'block';
+        menu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+        menu.style.top = Math.min(e.clientY, window.innerHeight - 150) + 'px';
+    }
+
+    /**
+     * 文件右键菜单
+     */
+    _showFileContextMenu(e, node) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const menu = document.getElementById('ide-context-menu');
+        if (!menu) return;
+        
+        while (menu.firstChild) menu.removeChild(menu.firstChild);
+
+        // 发送文件
+        menu.appendChild(this._createMenuItem('📤 发送到对话', async () => {
+            const content = await fs.readFile(node.path);
+            if (content !== null) {
+                gemini.sendFile(node.path, content);
+            }
+        }));
+
+        // 发送文件及依赖 (集成 depsAnalyzer)
+        const fileType = depsAnalyzer.getFileType(node.path);
+        if (fileType) {
+            menu.appendChild(this._createMenuItem('🔗 发送文件+依赖', async () => {
+                showToast('正在分析依赖关系...', 'info');
+                const { all } = await depsAnalyzer.getFileWithDeps(node.path);
+                
+                if (all.length <= 1) {
+                    // 仅主文件，调用 sendFile 保持 UI 交互一致
+                    const content = await fs.readFile(node.path);
+                    if (content !== null) gemini.sendFile(node.path, content);
+                    return;
+                }
+                
+                // 多文件打包：构造带目录层级的上下文
+                let text = `核心文件 \`${node.path}\` 及其关联依赖 (${all.length - 1} 个):\n\n`;
+                for (const filePath of all) {
+                    const content = await fs.readFile(filePath);
+                    if (content !== null) {
+                        const lang = getLanguage(filePath);
+                        text += `### ${filePath}\n\`\`\`${lang}\n${content}\n\`\`\`\n\n`;
+                    }
+                }
+                
+                const result = gemini.insertToInput(text);
+                if (result.success) {
+                    showToast(`已发送主文件及 ${all.length - 1} 个依赖 (~${formatTokens(result.tokens)} tokens)`);
+                }
+            }));
+        }
+
+        // 分隔线
+        menu.appendChild(this._createMenuDivider());
+
+        // 查看历史版本
+        menu.appendChild(this._createMenuItem('⏪ 历史版本', async () => {
+            // 直接调用，不再传递已删除的 showCodeReader 回调
+            await showHistoryDialog(node.path);
+        }));
+
+        // 快速撤销
+        menu.appendChild(this._createMenuItem('↩️ 撤销上次修改', async () => {
+            const result = await fs.revertFile(node.path);
+            if (result.success) {
+                showToast('已撤销');
+            } else {
+                showToast(result.error || '撤销失败', 'error');
+            }
+        }));
+
+        // 分隔线
+        menu.appendChild(this._createMenuDivider());
+
+        // 删除文件
+        menu.appendChild(this._createMenuItem('🗑️ 删除文件', async () => {
+            if (!confirm(`确定删除文件 "${node.name}"？`)) return;
+            if (await fs.deleteFile(node.path)) {
+                showToast('已删除: ' + node.name);
+                await this.refreshTree(); // 👈 修复：静默刷新
+            } else {
+                showToast('删除失败', 'error');
+            }
+        }, '#dc2626'));
+
+        menu.style.display = 'block';
+        menu.style.left = Math.min(e.clientX, window.innerWidth - 180) + 'px';
+        menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+    }
+
+    _createMenuDivider() {
+        const divider = document.createElement('div');
+        Object.assign(divider.style, {
+            height: '1px', background: 'var(--ide-border)', margin: '4px 0'
+        });
+        return divider;
+    }
+
+    _createMenuItem(text, onClick, bgColor = null) {
+        const item = document.createElement('div');
+        item.textContent = text;
+        Object.assign(item.style, {
+            padding: '8px 12px', cursor: 'pointer', fontSize: '12px', 
+            // 🎨 使用变量适配文字颜色
+            color: bgColor ? '#ef4444' : 'var(--ide-text)'
+        });
+        item.onmouseover = () => { 
+            item.style.background = bgColor || 'var(--ide-hover)'; 
+        };
+        item.onmouseout = () => { item.style.background = 'transparent'; };
+        item.onclick = (e) => {
+            e.stopPropagation();
+            document.getElementById('ide-context-menu').style.display = 'none';
+            onClick();
+        };
+        return item;
+    }
+
+    async _collectFiles(node, maxFiles = 20) {
+        const files = [];
+        const collect = (n) => {
+            if (n.kind === 'file') files.push(n);
+            if (n.children) n.children.forEach(collect);
+        };
+        collect(node);
+        
+        if (files.length > maxFiles) files.length = maxFiles;
+        
+        let result = `目录 \`${node.path}\` 文件内容:\n\n`;
+        for (const file of files) {
+            const content = await fs.readFile(file.path);
+            if (content !== null) {
+                const lang = getLanguage(file.name);
+                result += `### ${file.path}\n\`\`\`${lang}\n${content}\n\`\`\`\n\n`;
+            }
+        }
+        return result;
+    }
+}
+
+const ui = new UI();
+
+
+// ========== src/main.js ==========
+/**
+ * Gemini IDE Bridge - 入口文件
+ * V1.0.0 模块化重构版
+ */
+
+
+
+
+
+(function() {
+    console.log('%c[IDE Bridge] V1.0.0 启动', 'color: #00ff00; font-size: 14px; font-weight: bold;');
+
+    // 暴露到全局方便调试
+    window.IDE_BRIDGE = { fs, ui, gemini };
+
+    // 守护进程
+    function startGuardian() {
+        ui.init();
+        
+        const observer = new MutationObserver(() => {
+            if (!document.getElementById('ide-bridge-root')) {
+                ui.init();
+            }
+        });
+        observer.observe(document.body, { childList: true });
+    }
+
+    // 确保只启动一次
+    let initialized = false;
+    function safeStart() {
+        if (initialized) return;
+        initialized = true;
+        startGuardian();
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        safeStart();
+    } else {
+        window.addEventListener('DOMContentLoaded', safeStart);
+    }
+})();
+
+
+
+// 启动
+if (document.body) {
+    ui.init();
+    const observer = new MutationObserver(() => {
+        if (!document.getElementById('ide-bridge-root')) ui.init();
+    });
+    observer.observe(document.body, { childList: true });
+} else {
+    window.onload = () => ui.init();
+}
+
+window.IDE_BRIDGE = { fs, ui, gemini };
+console.log('%c[IDE Bridge] V1.0.0', 'color: #00ff00; font-size: 14px;');
+
+})();
