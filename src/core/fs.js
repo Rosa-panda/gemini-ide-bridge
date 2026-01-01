@@ -215,7 +215,17 @@ class FileSystem {
                 this.fileHandles.delete(path);
                 await history.clearFileHistory(path);
             }
-            this.dirHandles.delete(dirPath);
+            
+            // 清理目录句柄 (包括子目录)
+            const dirsToDelete = [];
+            for (const [path] of this.dirHandles) {
+                if (path === dirPath || path.startsWith(dirPath + '/')) {
+                    dirsToDelete.push(path);
+                }
+            }
+            for (const path of dirsToDelete) {
+                this.dirHandles.delete(path);
+            }
             
             return true;
         } catch (err) {
