@@ -92,10 +92,70 @@ function detectIssues(searchBlock, fileContent) {
 
 // ============ 反馈生成 ============
 
+/**
+ * 生成具体的修正指令
+ * 当差异只是空白字符时，告诉 Gemini 具体怎么改
+ */
+function generateFixInstructions(diffs) {
+    const instructions = [];
+    
+    for (const d of diffs.slice(0, 5)) {
+        if (d.type !== 'whitespace') continue;
+        
+        const searchLine = d.search;
+        const fileLine = d.file;
+        
+        // 检测行尾空格
+        const searchTrailing = searchLine.match(/[ \t]+$/);
+        const fileTrailing = fileLine.match(/[ \t]+$/);
+        if (searchTrailing && !fileTrailing) {
+            instructions.push(`第 ${d.lineNum} 行：删除行尾的 ${searchTrailing[0].length} 个空白字符`);
+            continue;
+        }
+        
+        // 检测缩进差异
+        const searchIndent = searchLine.match(/^[ \t]*/)[0];
+        const fileIndent = fileLine.match(/^[ \t]*/)[0];
+        if (searchIndent !== fileIndent) {
+            const searchTabs = (searchIndent.match(/\t/g) || []).length;
+            const searchSpaces = (searchIndent.match(/ /g) || []).length;
+            const fileTabs = (fileIndent.match(/\t/g) || []).length;
+            const fileSpaces = (fileIndent.match(/ /g) || []).length;
+            
+            if (searchTabs > 0 && fileTabs === 0) {
+                instructions.push(`第 ${d.lineNum} 行：把 ${searchTabs} 个 Tab 改成 ${fileSpaces} 个空格`);
+            } else if (searchSpaces > 0 && fileSpaces === 0 && fileTabs > 0) {
+                instructions.push(`第 ${d.lineNum} 行：把 ${searchSpaces} 个空格改成 ${fileTabs} 个 Tab`);
+            } else if (searchSpaces !== fileSpaces) {
+                instructions.push(`第 ${d.lineNum} 行：缩进从 ${searchSpaces} 个空格改成 ${fileSpaces} 个空格`);
+            }
+        }
+    }
+    
+    return instructions;
+}
+
 function generateDiffReport(diffs) {
     if (diffs.length === 0) return '';
     
-    const lines = diffs.slice(0, 8).map(d => {
+    // 检查是否全是空白差异
+    const allWhitespace = diffs.every(d => d.type === 'whitespace');
+    
+    // 生成具体修正指令
+    const fixInstructions = generateFixInstructions(diffs);
+    
+    let report = '';
+    
+    // 如果有具体修正指令，优先显示
+    if (fixInstructions.length > 0) {
+        report += `**🔧 具体修正（逐行）：**\n${fixInstructions.map(i => `- ${i}`).join('\n')}\n\n`;
+        if (allWhitespace) {
+            report += `💡 **提示：** 所有差异都是空白字符问题，内容本身是对的。直接复制下方"正确的 SEARCH 块"最省事。\n\n`;
+        }
+    }
+    
+    // 详细差异
+    const lines = diffs.slice(0, 6).map(d => {
         if (d.type === 'whitespace') {
             return `  第 ${d.lineNum} 行: 空白差异 - 位置 ${d.firstDiffPos}: ${d.searchChar} → ${d.fileChar}
     你写的: \`${visualizeLine(d.search)}\`
@@ -107,8 +167,8 @@ function generateDiffReport(diffs) {
         }
     });
     
-    let report = `**逐行差异分析：**\n${lines.join('\n\n')}`;
-    if (diffs.length > 8) report += `\n\n  ... 还有 ${diffs.length - 8} 处差异`;
+    report += `**逐行差异分析：**\n${lines.join('\n\n')}`;
+    if (diffs.length > 6) report += `\n\n  ... 还有 ${diffs.length - 6} 处差异`;
     return report;
 }
 
