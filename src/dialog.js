@@ -134,8 +134,12 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1) {
 
             // 生成行号和代码
             const lines = content.split('\n');
-            const lineNumsHtml = lines.map((_, i) => `<div>${lineStart + i}</div>`).join('');
-            lineNumbers.innerHTML = lineNumsHtml;
+            // 使用 DOM 操作代替 innerHTML（绕过 Trusted Types 限制）
+            lines.forEach((_, i) => {
+                const lineNumDiv = document.createElement('div');
+                lineNumDiv.textContent = String(lineStart + i);
+                lineNumbers.appendChild(lineNumDiv);
+            });
             codeArea.textContent = content;
 
             codeContainer.appendChild(lineNumbers);

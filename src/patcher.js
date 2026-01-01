@@ -135,98 +135,72 @@ export function restoreLineEnding(content, originalEnding) {
 }
 
 
-// ==================== 确定性唯一匹配 ====================
+// ==================== 极致逻辑清洗引擎 ====================
 
 /**
-* 计算 SEARCH 块在文件中的匹配次数
-* 使用深度标准化进行匹配（忽略缩进差异）
+* 核心：将代码转化为纯粹的逻辑行序列（忽略缩进、空行、换行符差异）
+*/
+function getLogicSignature(code) {
+    // 统一换行符并移除不可见字符（如零宽空格等），确保逻辑比对纯净
+    return code.replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n')
+                .split('\n')
+                .map((line, index) => ({ 
+                    content: line.trim().replace(/[\u200B-\u200D\uFEFF]/g, ''), 
+                    originalIndex: index 
+                }))
+                .filter(item => item.content.length > 0);
+}
+
+/**
+* 极致鲁棒的计数器：支持直接传入逻辑签名或原始代码进行滑动窗口匹配
 */
 function countMatches(content, search) {
-    // 深度标准化：统一换行符、trim 每行、过滤空行
-    const deepNormalize = (s) => {
-        return s.replace(/\r\n/g, '\n')
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line) // 过滤空行！
-            .join('\n');
-    };
+    const contentSigs = typeof content === 'string' ? getLogicSignature(content) : content;
+    const searchSigs = typeof search === 'string' ? getLogicSignature(search) : search;
     
-    const normalizedContent = deepNormalize(content);
-    const normalizedSearch = deepNormalize(search);
+    if (searchSigs.length === 0) return 0;
     
-    if (!normalizedSearch) return 0;
-    
-    // 按行匹配计数
-    const contentLines = normalizedContent.split('\n');
-    const searchLines = normalizedSearch.split('\n');
-    
-    // 如果 SEARCH 只有一行，直接计数该行在文件中出现的次数
-    if (searchLines.length === 1) {
-        const target = searchLines[0];
-        let count = 0;
-        for (const line of contentLines) {
-            if (line === target) count++;
-        }
-        console.log(`[Patcher Debug] Single-line search "${target}" found ${count} times`);
-        return count;
-    }
-    
-    // 多行 SEARCH：按连续行匹配
     let count = 0;
-    for (let i = 0; i <= contentLines.length - searchLines.length; i++) {
-        let match = true;
-        for (let j = 0; j < searchLines.length; j++) {
-            if (contentLines[i + j] !== searchLines[j]) {
-                match = false;
-                break;
+    for (let i = 0; i <= contentSigs.length - searchSigs.length; i++) {
+            let match = true;
+            for (let j = 0; j < searchSigs.length; j++) {
+                if (contentSigs[i + j].content !== searchSigs[j].content) {
+                    match = false;
+                    break;
+                }
             }
-        }
-        if (match) {
-            count++;
-            console.log(`[Patcher Debug] Multi-line match #${count} at line index ${i}`);
-        }
+            if (match) count++;
     }
-    
-    console.log(`[Patcher Debug] Total matches found: ${count}`);
     return count;
 }
 
 // ==================== 核心替换逻辑 ====================
 
 /**
- * 检测补丁是否已经应用过
- * 核心逻辑：如果 REPLACE 块的内容已经存在于文件中，说明已应用
- */
+* 检测补丁是否已经应用过
+* 核心逻辑：使用逻辑签名进行比对，若目标状态已达成则跳过
+*/
 function isAlreadyApplied(content, search, replace) {
-    const deepNormalize = (s) => {
-        return s.replace(/\r\n/g, '\n')
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line) // 移除空行
-            .join('\n');
-    };
+    const contentSigs = getLogicSignature(content);
+    const searchSigs = getLogicSignature(search);
+    const replaceSigs = getLogicSignature(replace);
     
-    const normalizedContent = deepNormalize(content);
-    const normalizedSearch = deepNormalize(search);
-    const normalizedReplace = deepNormalize(replace);
+    const searchContent = searchSigs.map(s => s.content).join('\n');
+    const replaceContent = replaceSigs.map(s => s.content).join('\n');
     
-    // 如果 SEARCH 和 REPLACE 相同，无法判断
-    if (normalizedSearch === normalizedReplace) return false;
+    if (searchContent === replaceContent) return false;
+
+    // 统一使用逻辑签名进行计数
+    const replaceMatchCount = countMatches(contentSigs, replaceSigs);
+    const searchMatchCount = countMatches(contentSigs, searchSigs);
+
+    // 情况1：REPLACE 逻辑已存在且 SEARCH 逻辑已完全消失 -> 已应用
+    if (replaceMatchCount > 0 && searchMatchCount === 0) return true;
     
-    // 如果 REPLACE 内容已存在，且 SEARCH 内容不存在（或 REPLACE 包含 SEARCH）
-    const replaceExists = normalizedContent.includes(normalizedReplace);
-    const searchExists = normalizedContent.includes(normalizedSearch);
-    
-    // 情况1：REPLACE 存在但 SEARCH 不存在 → 已应用
-    if (replaceExists && !searchExists) return true;
-    
-    // 情况2：REPLACE 包含 SEARCH（嵌套情况），且 REPLACE 已存在 → 已应用
-    if (replaceExists && normalizedReplace.includes(normalizedSearch)) {
-        // 进一步检查：REPLACE 在文件中出现的次数
-        // 如果 REPLACE 出现次数 >= SEARCH 出现次数，说明已应用
-        const replaceCount = countOccurrences(normalizedContent, normalizedReplace);
-        const searchCount = countOccurrences(normalizedContent, normalizedSearch);
-        if (replaceCount >= searchCount) return true;
+    // 情况2：REPLACE 包含 SEARCH (嵌套情况)，且 REPLACE 数量 >= SEARCH 数量 -> 已应用
+    if (replaceMatchCount > 0 && replaceMatchCount >= searchMatchCount && replaceContent.includes(searchContent)) {
+            return true;
     }
     
     return false;
@@ -289,40 +263,60 @@ export function tryReplace(content, search, replace) {
     // 3. 语义掩码 - 保护 REPLACE 块中的多行字符串
     const { masked: maskedReplace, literals } = extractLiterals(normalizedReplace);
     
-    // 4. 执行匹配和替换
+    // 4. 执行基于逻辑签名的物理定位
+    const contentSigs = getLogicSignature(normalizedContent);
+    const searchSigs = getLogicSignature(normalizedSearch);
     const lines = normalizedContent.split('\n');
-    const searchLines = normalizedSearch.split('\n');
     
-    // 精确匹配
-    if (normalizedContent.includes(normalizedSearch)) {
-        const searchStart = normalizedContent.indexOf(normalizedSearch);
-        const matchStart = normalizedContent.slice(0, searchStart).split('\n').length - 1;
-        
+    // 我们只需找到逻辑匹配的第一处物理索引
+    let matchPhysicalStart = -1;
+    for (let i = 0; i <= contentSigs.length - searchSigs.length; i++) {
+        let match = true;
+        for (let j = 0; j < searchSigs.length; j++) {
+                if (contentSigs[i + j].content !== searchSigs[j].content) {
+                    match = false;
+                    break;
+                }
+        }
+        if (match) {
+                matchPhysicalStart = contentSigs[i].originalIndex;
+                break; 
+        }
+    }
+
+    if (matchPhysicalStart !== -1) {
+        // 确定物理结束位置（包含搜索块覆盖的所有物理行）
+        const searchSigsInFile = contentSigs.slice(
+                contentSigs.findIndex(s => s.originalIndex === matchPhysicalStart),
+                contentSigs.findIndex(s => s.originalIndex === matchPhysicalStart) + searchSigs.length
+        );
+        const matchPhysicalEnd = searchSigsInFile[searchSigsInFile.length - 1].originalIndex;
+        const physicalLineCount = matchPhysicalEnd - matchPhysicalStart + 1;
+
         // 对掩码后的 REPLACE 块进行缩进对齐
-        const alignedReplace = alignIndent(lines, matchStart, searchLines, maskedReplace);
-        
-        // 还原被保护的字符串
+        const alignedReplace = alignIndent(lines, matchPhysicalStart, normalizedSearch.split('\n'), maskedReplace);
         const restoredReplace = alignedReplace.map(line => restoreLiterals(line, literals));
         
-        const before = lines.slice(0, matchStart);
-        const after = lines.slice(matchStart + searchLines.length);
+        const before = lines.slice(0, matchPhysicalStart);
+        const after = lines.slice(matchPhysicalEnd + 1);
         const result = [...before, ...restoredReplace, ...after].join('\n');
         
-        // 恢复原始换行符风格，并返回具体的修改行号
         return {
-            success: true,
-            content: restoreLineEnding(result, originalEnding),
-            matchLine: matchStart + 1, // 供 UI 显示起始行号
-            lineCount: searchLines.length
+                success: true,
+                content: restoreLineEnding(result, originalEnding),
+                matchLine: matchPhysicalStart + 1,
+                lineCount: physicalLineCount
         };
     }
     
-    // 模糊匹配
+    // 模糊匹配（修正：增加元数据返回）
     const fuzzyResult = fuzzyReplace(normalizedContent, normalizedSearch, maskedReplace, literals);
     if (fuzzyResult) {
         return {
-            success: true,
-            content: restoreLineEnding(fuzzyResult, originalEnding)
+                success: true,
+                content: restoreLineEnding(fuzzyResult.content, originalEnding),
+                matchLine: fuzzyResult.matchLine,
+                lineCount: fuzzyResult.lineCount
         };
     }
     
@@ -330,42 +324,42 @@ export function tryReplace(content, search, replace) {
 }
 
 /**
- * 模糊匹配替换 (处理空白差异 + 智能缩进对齐)
- */
+* 模糊匹配替换 (处理空白差异 + 智能缩进对齐)
+*/
 function fuzzyReplace(content, search, maskedReplace, literals) {
     if (!search || !search.trim()) return null;
 
-    const normalize = (s) => s.replace(/[ \t]+$/gm, '');
-    const deepNormalize = (s) => normalize(s).replace(/^[ \t]+/gm, '');
+    const lines = content.split('\n');
+    const searchLines = search.replace(/\r\n/g, '\n').split('\n');
     
-    const normalizedContent = normalize(content);
-    const normalizedSearch = normalize(search);
-    
-    if (normalizedSearch && deepNormalize(normalizedContent).includes(deepNormalize(normalizedSearch))) {
-        const lines = content.split('\n');
-        const searchLines = search.trim().split('\n');
-        
-        for (let i = 0; i <= lines.length - searchLines.length; i++) {
+    // 物理行匹配（允许缩进不同）
+    for (let i = 0; i <= lines.length - searchLines.length; i++) {
             let match = true;
             for (let j = 0; j < searchLines.length; j++) {
-                if (lines[i + j].trim() !== searchLines[j].trim()) {
+                // 如果搜索块包含空行，文件对应位置也必须是空行（或仅含空格）
+                if (searchLines[j].trim() === '') {
+                    if (lines[i + j].trim() !== '') {
+                            match = false;
+                            break;
+                    }
+                } else if (lines[i + j].trim() !== searchLines[j].trim()) {
                     match = false;
                     break;
                 }
             }
+        
             if (match) {
                 const before = lines.slice(0, i);
                 const after = lines.slice(i + searchLines.length);
-                
-                // 对掩码后的 REPLACE 块进行缩进对齐
                 const alignedReplace = alignIndent(lines, i, searchLines, maskedReplace);
-                
-                // 还原被保护的字符串
                 const restoredReplace = alignedReplace.map(line => restoreLiterals(line, literals));
-                
-                return [...before, ...restoredReplace, ...after].join('\n');
+            
+                return {
+                    content: [...before, ...restoredReplace, ...after].join('\n'),
+                    matchLine: i + 1,
+                    lineCount: searchLines.length
+                };
             }
-        }
     }
     return null;
 }
