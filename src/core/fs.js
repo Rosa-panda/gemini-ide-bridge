@@ -228,6 +228,10 @@ class FileSystem {
         return this.fileHandles.has(filePath);
     }
 
+    getAllFilePaths() {
+        return Array.from(this.fileHandles.keys());
+    }
+
     generateStructure(node, indent = '', isLast = true) {
         let result = '';
         const marker = isLast ? '└── ' : '├── ';

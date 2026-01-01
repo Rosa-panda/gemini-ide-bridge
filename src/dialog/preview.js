@@ -8,8 +8,9 @@
  * @param {string} oldText - SEARCH 块内容
  * @param {string} newText - REPLACE 块内容
  * @param {number} startLine - 匹配位置的起始行号
+ * @param {string} syntaxError - 可选的语法错误信息
  */
-export function showPreviewDialog(file, oldText, newText, startLine = 1) {
+export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = null) {
     return new Promise((resolve) => {
         const backdrop = document.createElement('div');
         backdrop.id = 'ide-modal-backdrop';
@@ -42,22 +43,36 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1) {
         const header = document.createElement('div');
         Object.assign(header.style, {
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: '20px', paddingBottom: '16px',
+            marginBottom: syntaxError ? '12px' : '20px', paddingBottom: '16px',
             borderBottom: '1px solid var(--ide-border)'
         });
         
         const titleGroup = document.createElement('div');
         const titleIcon = document.createElement('span');
-        titleIcon.textContent = '📝';
+        titleIcon.textContent = syntaxError ? '⚠️' : '📝';
         titleIcon.style.marginRight = '8px';
         const titleText = document.createElement('span');
-        titleText.textContent = `变更预览: ${file}`;
+        titleText.textContent = `${syntaxError ? '强制预览' : '变更预览'}: ${file}`;
         titleText.style.fontSize = '18px';
         titleText.style.fontWeight = '600';
         
         titleGroup.appendChild(titleIcon);
         titleGroup.appendChild(titleText);
         header.appendChild(titleGroup);
+        dialog.appendChild(header);
+
+        // 语法警告横幅
+        if (syntaxError) {
+            const warningBanner = document.createElement('div');
+            Object.assign(warningBanner.style, {
+                padding: '12px 16px', marginBottom: '16px',
+                background: 'rgba(220, 38, 38, 0.15)',
+                border: '1px solid #dc2626', borderRadius: '8px',
+                color: '#ef4444', fontSize: '13px'
+            });
+            warningBanner.innerHTML = `<strong>🚨 语法校验警告：</strong>${syntaxError}<br><span style="color: var(--ide-text-secondary); font-size: 12px;">请仔细核对代码完整性后再确认应用。</span>`;
+            dialog.appendChild(warningBanner);
+        }
 
         // Diff 内容区
         const diffBody = document.createElement('div');

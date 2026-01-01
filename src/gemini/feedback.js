@@ -295,3 +295,42 @@ export function buildDuplicateContext(filePath, fileContent, searchBlock, matchC
     response += `\n**建议：** 添加前后 2-3 行独特上下文使其唯一匹配。`;
     return response;
 }
+
+/**
+ * 文件不存在反馈
+ */
+export function buildFileNotFoundContext(filePath, projectFiles) {
+    let response = `❌ **文件不存在** - \`${filePath}\`\n\n`;
+    response += `项目中没有找到这个文件。\n\n`;
+    response += `**可能的原因：**\n`;
+    response += `- 文件路径拼写错误\n`;
+    response += `- 文件已被删除或移动\n`;
+    response += `- 路径应该是相对于项目根目录的完整路径\n\n`;
+    
+    // 尝试找相似的文件名
+    const fileName = filePath.split('/').pop();
+    if (projectFiles && projectFiles.length > 0) {
+        const similar = projectFiles
+            .filter(f => f.toLowerCase().includes(fileName.toLowerCase().slice(0, 5)))
+            .slice(0, 5);
+        if (similar.length > 0) {
+            response += `**你是不是想找：**\n`;
+            response += similar.map(f => `- \`${f}\``).join('\n');
+            response += '\n';
+        }
+    }
+    
+    response += `\n请检查文件路径后重新生成补丁。`;
+    return response;
+}
+
+/**
+ * 读取失败反馈
+ */
+export function buildReadErrorContext(filePath) {
+    return `❌ **文件读取失败** - \`${filePath}\`
+
+无法读取文件内容，可能是权限问题或文件被占用。
+
+请确认文件可以正常访问后重试。`;
+}

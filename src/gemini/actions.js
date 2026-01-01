@@ -8,7 +8,7 @@ import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
 import { markAsApplied, unmarkAsApplied, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
 import { showToast } from '../shared/utils.js';
-import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext } from './feedback.js';
+import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext, buildFileNotFoundContext, buildReadErrorContext } from './feedback.js';
 
 /**
 * 创建操作按钮（用于代码块操作栏）
@@ -74,18 +74,22 @@ function addUndoButtonForPatch(bar, patch, insertToInput) {
 async function applyPatch(patch, btn, bar, insertToInput) {
     const { file, search, replace } = patch;
     
+    // 文件不存在 → 自动反馈
     if (!fs.hasFile(file)) {
         showToast('文件不存在: ' + file, 'error');
         btn.textContent = '❌ 文件不存在';
         btn.style.background = '#dc2626';
+        insertToInput(buildFileNotFoundContext(file, fs.getAllFilePaths()));
         return;
     }
     
     const content = await fs.readFile(file);
+    // 读取失败 → 自动反馈
     if (content === null) {
         showToast('读取失败', 'error');
         btn.textContent = '❌ 读取失败';
         btn.style.background = '#dc2626';
+        insertToInput(buildReadErrorContext(file));
         return;
     }
     
@@ -114,18 +118,40 @@ async function applyPatch(patch, btn, bar, insertToInput) {
 
     const syntaxCheck = checkJsSyntax(result.content, file);
     if (!syntaxCheck.valid) {
-        const shortError = syntaxCheck.error.length > 30 
-            ? syntaxCheck.error.slice(0, 30) + '...' 
+        const shortError = syntaxCheck.error.length > 20 
+            ? syntaxCheck.error.slice(0, 20) + '...' 
             : syntaxCheck.error;
-        showToast(`❌ 语法错误: ${syntaxCheck.error}`, 'error');
-        btn.textContent = `❌ ${shortError}`;
-        btn.title = `语法错误: ${syntaxCheck.error}`;
-        btn.style.background = '#dc2626';
+        showToast(`⚠️ 语法检查未通过`, 'error');
+        
+        // 自动反馈给 Gemini
+        insertToInput(buildSyntaxErrorContext(file, syntaxCheck.error, search, replace, result.content));
+        
+        // 按钮变成"强制预览"
+        btn.textContent = `⚠️ 强制预览 (${shortError})`;
+        btn.title = `语法错误: ${syntaxCheck.error}\n点击可强制预览并应用`;
+        btn.style.background = '#f59e0b';
         btn.disabled = false;
         btn.style.opacity = '1';
         
-        // 传递完整的补丁后内容，让反馈更准确
-        insertToInput(buildSyntaxErrorContext(file, syntaxCheck.error, search, replace, result.content));
+        // 重新绑定点击事件，下次点击跳过语法检查
+        btn.onclick = async () => {
+            const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1, syntaxCheck.error);
+            if (confirmed) {
+                btn.textContent = '应用中...';
+                const success = await fs.writeFile(file, result.content);
+                if (success) {
+                    btn.textContent = '✅ 已应用';
+                    btn.title = `于 ${new Date().toLocaleTimeString()} 强制应用`;
+                    btn.style.background = '#059669';
+                    showToast('已修改: ' + file);
+                    markAsApplied(file, search);
+                    addUndoButtonForPatch(bar, patch, insertToInput);
+                } else {
+                    btn.textContent = '❌ 写入失败';
+                    btn.style.background = '#dc2626';
+                }
+            }
+        };
         return;
     }
 
