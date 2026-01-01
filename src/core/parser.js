@@ -46,18 +46,22 @@ export function parseDelete(text) {
 
 /**
  * 解析 SEARCH/REPLACE 块（支持空 replace 表示删除）
+ * 支持两种格式：
+ * - <<<<<<< SEARCH [path/to/file]
+ * - <<<<<<< SEARCH path/to/file
  */
 export function parseSearchReplace(text) {
     const patches = [];
-    const regex = /<{6,7} SEARCH(?:\s*\[(.+?)\])?\s*\n([\s\S]*?)\n={6,7}\n?([\s\S]*?)>{6,7} REPLACE/g;
+    // 支持 [文件路径] 或 文件路径（无方括号）
+    const regex = /<{6,7} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*\n([\s\S]*?)\n={6,7}\n?([\s\S]*?)>{6,7} REPLACE/g;
     
     let match;
     while ((match = regex.exec(text)) !== null) {
         patches.push({
-            file: match[1] || null,
-            search: match[2],
-            replace: match[3].replace(/\n$/, ''),
-            isDelete: match[3].trim() === ''
+            file: match[1] || match[2] || null,  // [路径] 或 路径
+            search: match[3],
+            replace: match[4].replace(/\n$/, ''),
+            isDelete: match[4].trim() === ''
         });
     }
     
