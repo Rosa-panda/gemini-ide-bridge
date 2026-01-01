@@ -49,8 +49,13 @@ function addUndoButton(bar, filePath, insertToInput) {
 
 /**
  * 添加补丁撤销按钮
+ * @param {HTMLElement} bar - 操作栏
+ * @param {Object} patch - 补丁对象
+ * @param {Function} insertToInput - 输入框插入函数
+ * @param {HTMLElement} originalBtn - 原始的应用按钮（撤销后恢复它）
+ * @param {number} idx - 补丁索引
  */
-function addUndoButtonForPatch(bar, patch, insertToInput) {
+function addUndoButtonForPatch(bar, patch, insertToInput, originalBtn = null, idx = 0) {
     const fileName = patch.file.split('/').pop();
     const undoBtn = createActionButton(`↩️ 撤销 → ${fileName}`, async () => {
         const result = await fs.revertFile(patch.file);
@@ -58,6 +63,16 @@ function addUndoButtonForPatch(bar, patch, insertToInput) {
             showToast('已撤销: ' + patch.file);
             unmarkAsApplied(patch.file, patch.search);
             undoBtn.remove();
+            
+            // 恢复原按钮状态
+            if (originalBtn) {
+                const btnText = patch.isDelete 
+                    ? `🗑️ 删除代码 #${idx + 1} → ${patch.file}`
+                    : `🔧 应用修改 #${idx + 1} → ${patch.file}`;
+                originalBtn.textContent = btnText;
+                originalBtn.style.background = patch.isDelete ? '#f59e0b' : '#2563eb';
+                originalBtn.title = '';
+            }
         } else {
             showToast(result.error || '撤销失败', 'error');
         }
@@ -145,7 +160,7 @@ async function applyPatch(patch, btn, bar, insertToInput) {
                     btn.style.background = '#059669';
                     showToast('已修改: ' + file);
                     markAsApplied(file, search);
-                    addUndoButtonForPatch(bar, patch, insertToInput);
+                    addUndoButtonForPatch(bar, patch, insertToInput, btn, patch._idx || 0);
                 } else {
                     btn.textContent = '❌ 写入失败';
                     btn.style.background = '#dc2626';
@@ -172,7 +187,7 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         btn.style.background = '#059669';
         showToast('已修改: ' + file);
         markAsApplied(file, search);
-        addUndoButtonForPatch(bar, patch, insertToInput);
+        addUndoButtonForPatch(bar, patch, insertToInput, btn, patch._idx || 0);
     } else {
         btn.textContent = '❌ 写入失败';
         btn.style.background = '#dc2626';
@@ -227,10 +242,27 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         
         deletes.forEach(del => {
             const btn = createActionButton(`🗑️ 删除 → ${del.file}`, async () => {
-                if (!confirm(`确定删除文件 "${del.file}"？`)) return;
+                const cleanPath = del.file.replace(/\/$/, '');
+                // 严谨校验：只有在目录句柄池中的才视为目录
+                const isDir = fs.dirHandles.has(cleanPath);
+                
+                // 安全阀：严禁通过此指令删除项目根目录
+                if (cleanPath === '.' || cleanPath === '' || cleanPath === fs.projectName) {
+                    showToast('禁止删除项目根目录', 'error');
+                    return;
+                }
+
+                const typeText = isDir ? '目录' : '文件';
+                const confirmMsg = isDir 
+                    ? `⚠️ 危险操作！\n确认递归删除目录 "${cleanPath}" 及其内部所有文件吗？\n此操作不可恢复！`
+                    : `确认删除文件 "${cleanPath}" 吗？`;
+
+                if (!confirm(confirmMsg)) return;
                 
                 btn.textContent = '正在删除...';
-                const success = await fs.deleteFile(del.file);
+                const success = isDir 
+                    ? await fs.deleteDirectory(cleanPath) 
+                    : await fs.deleteFile(cleanPath);
                 
                 if (success) {
                     btn.textContent = '✅ 已删除';
@@ -253,6 +285,8 @@ export function injectActionBar(container, text, filePath, insertToInput) {
     
     if (patches.length > 0) {
         patches.forEach((patch, idx) => {
+            patch._idx = idx; // 保存索引供撤销时使用
+            
             const btn = document.createElement('button');
             Object.assign(btn.style, {
                 background: '#2563eb', color: 'white', border: 'none',
@@ -287,7 +321,7 @@ export function injectActionBar(container, text, filePath, insertToInput) {
                     if (status.applied) {
                         btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
                         btn.style.background = '#059669';
-                        addUndoButtonForPatch(bar, patch, insertToInput);
+                        addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
                     }
                 });
             }

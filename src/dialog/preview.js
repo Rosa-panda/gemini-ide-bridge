@@ -70,7 +70,23 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                 border: '1px solid #dc2626', borderRadius: '8px',
                 color: '#ef4444', fontSize: '13px'
             });
-            warningBanner.innerHTML = `<strong>🚨 语法校验警告：</strong>${syntaxError}<br><span style="color: var(--ide-text-secondary); font-size: 12px;">请仔细核对代码完整性后再确认应用。</span>`;
+            
+            // 使用 DOM API 而不是 innerHTML（Trusted Types 安全）
+            const strongEl = document.createElement('strong');
+            strongEl.textContent = '🚨 语法校验警告：';
+            warningBanner.appendChild(strongEl);
+            
+            const errorText = document.createTextNode(syntaxError);
+            warningBanner.appendChild(errorText);
+            
+            warningBanner.appendChild(document.createElement('br'));
+            
+            const hintSpan = document.createElement('span');
+            hintSpan.style.color = 'var(--ide-text-secondary)';
+            hintSpan.style.fontSize = '12px';
+            hintSpan.textContent = '请仔细核对代码完整性后再确认应用。';
+            warningBanner.appendChild(hintSpan);
+            
             dialog.appendChild(warningBanner);
         }
 
