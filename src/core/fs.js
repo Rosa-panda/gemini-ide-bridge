@@ -6,7 +6,8 @@ import { history } from './history.js';
 
 const IGNORE_DIRS = new Set([
     'node_modules', '.git', 'dist', '.DS_Store', '.idea', 
-    '.vscode', '__pycache__', '.next', 'build', '.cache'
+    '.vscode', '__pycache__', '.next', 'build', '.cache',
+    'coverage', '.env', '.gitkeep'
 ]);
 
 class FileSystem {

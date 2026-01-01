@@ -33,10 +33,12 @@ export function processCodeBlock(block, processedBlocks) {
  * 创建 MutationObserver 监听代码块
  */
 export function createWatcher(onCodeBlock) {
+    let timeout = null;
     return new MutationObserver(() => {
-        const codeBlocks = document.querySelectorAll('code-block, pre > code, .code-block');
-        codeBlocks.forEach(block => {
-            onCodeBlock(block);
-        });
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            const codeBlocks = document.querySelectorAll('code-block, pre > code, .code-block');
+            codeBlocks.forEach(block => onCodeBlock(block));
+        }, 500);
     });
 }

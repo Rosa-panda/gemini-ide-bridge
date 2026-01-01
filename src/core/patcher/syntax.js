@@ -36,9 +36,9 @@ function stripCommentsAndStrings(code) {
         while (j >= 0 && /\s/.test(result[j])) j--;
         if (j < 0) return true;
         const lastChar = result[j];
-        return /[=(:,;\[!&|?{}<>+\-*%^~]/.test(lastChar) || 
-               result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
-    };
+        return /[=(:,;\[!&|?{}<>+\-*%^~()]/.test(lastChar) || 
+            result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
+        };
     
     while (i < len) {
         const char = code[i];

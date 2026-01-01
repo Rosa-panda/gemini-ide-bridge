@@ -33,6 +33,13 @@ function detectIssues(searchBlock, fileContent) {
     const fixes = [];
     const searchLines = searchBlock.split('\n');
     const fileLines = fileContent.split('\n');
+
+    // 检测省略号
+    const lazyPatterns = [/^\s*\/\/\s*\.{3,}/, /^\s*\.{3,}/, /^\s*\/\*\s*\.{3,}/];
+    if (searchLines.some(l => lazyPatterns.some(p => p.test(l)))) {
+        issues.push('❌ SEARCH 块包含省略号 (...)');
+        fixes.push('请提供完整的原始代码，禁止使用省略号跳过内容');
+    }
     
     // Tab vs 空格
     const searchHasTabs = /\t/.test(searchBlock);
@@ -132,6 +139,13 @@ export function buildMismatchContext(filePath, fileContent, searchBlock) {
     
     if (candidates.length > 0) {
         const best = candidates[0];
+
+        // 缩进检测
+        const firstLine = searchLines[0]?.trim();
+        if (best.score < 100 && best.lines[0]?.trim() === firstLine) {
+            response += `\n⚠️ **疑似缩进错误**：首行内容一致但匹配度非 100%，请检查缩进层级。\n`;
+        }
+
         response += `\n**最佳匹配：** 第 ${best.startLine}-${best.endLine} 行 (${best.score}% 相似)\n`;
         
         const diffs = detailedDiff(searchLines, best.lines);

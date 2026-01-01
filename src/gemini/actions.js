@@ -142,6 +142,7 @@ async function applyPatch(patch, btn, bar, insertToInput) {
     const success = await fs.writeFile(file, result.content);
     if (success) {
         btn.textContent = '✅ 已应用';
+        btn.title = `于 ${new Date().toLocaleTimeString()} 应用成功`;
         btn.style.background = '#059669';
         showToast('已修改: ' + file);
         markAsApplied(file, search);
