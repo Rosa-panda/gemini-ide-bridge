@@ -91,12 +91,25 @@ export function analyzeIndentLevels(lines) {
 
     const anchorIndent = indents[firstValidIdx];
     
-    // 动态检测源内容的缩进单位，增强鲁棒性
+    // 改进：通过统计相邻行缩进差值的频率来检测源单位，增强对混合缩进的鲁棒性
+    const steps = [];
+    for (let i = 0; i < indents.length - 1; i++) {
+        if (indents[i] >= 0 && indents[i + 1] >= 0) {
+            const diff = Math.abs(indents[i + 1] - indents[i]);
+            if (diff > 0) steps.push(diff);
+        }
+    }
+
     let sourceUnit = 4;
-    const diffs = indents.filter(n => n > anchorIndent).map(n => n - anchorIndent);
-    if (diffs.length > 0) {
-        const minDiff = Math.min(...diffs);
-        if (minDiff > 0) sourceUnit = minDiff;
+    if (steps.length > 0) {
+        // 取出现频率最高的差值作为缩进单位
+        const counts = {};
+        steps.forEach(s => counts[s] = (counts[s] || 0) + 1);
+        const mostFrequent = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
+        sourceUnit = parseInt(mostFrequent);
+    } else {
+        const diffs = indents.filter(n => n > anchorIndent).map(n => n - anchorIndent);
+        if (diffs.length > 0) sourceUnit = Math.min(...diffs);
     }
 
     return indents.map(indent => {
@@ -105,4 +118,4 @@ export function analyzeIndentLevels(lines) {
         if (diff <= 0) return 0;
         return Math.round(diff / sourceUnit);
     });
-    }
+}
