@@ -14,8 +14,11 @@ import { getLanguage } from '../shared/utils.js';
 function highlightName(name, searchTerm) {
     if (!searchTerm) return document.createTextNode(name);
 
-    const safeTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${safeTerm})`, 'gi');
+    // 转义正则特殊字符
+    const safeTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, function(match) {
+        return '\\' + match;
+    });
+    const regex = new RegExp('(' + safeTerm + ')', 'gi');
     const parts = name.split(regex);
     
     if (parts.length === 1) return document.createTextNode(name);

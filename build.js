@@ -67,7 +67,7 @@ files.forEach(file => {
     // 移除 import/export 语句
     content = content.replace(/^import .+$/gm, '');
     content = content.replace(/^export (async )?(const|class|function)/gm, '$1$2');
-    content = content.replace(/^export \{ .+ \};?$/gm, '');
+    content = content.replace(/^export \{[^}]+\}.*$/gm, '');  // 移除所有 export { } 语句（包括 from）
     
     output += `// ========== ${file} ==========\n`;
     output += content + '\n\n';
