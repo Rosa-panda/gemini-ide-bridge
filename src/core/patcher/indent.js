@@ -90,11 +90,19 @@ export function analyzeIndentLevels(lines) {
     if (firstValidIdx === -1) return lines.map(() => 0);
 
     const anchorIndent = indents[firstValidIdx];
+    
+    // 动态检测源内容的缩进单位，增强鲁棒性
+    let sourceUnit = 4;
+    const diffs = indents.filter(n => n > anchorIndent).map(n => n - anchorIndent);
+    if (diffs.length > 0) {
+        const minDiff = Math.min(...diffs);
+        if (minDiff > 0) sourceUnit = minDiff;
+    }
 
     return indents.map(indent => {
         if (indent < 0) return 0;
         const diff = indent - anchorIndent;
         if (diff <= 0) return 0;
-        return Math.max(0, Math.round(diff / 3));
+        return Math.round(diff / sourceUnit);
     });
-}
+    }

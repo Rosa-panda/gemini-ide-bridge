@@ -89,3 +89,33 @@ ${numberedReplace}
 
 请检查第 ${errorLine > 0 ? errorLine : '?'} 行附近的语法错误（括号是否匹配、是否有多余或缺失的符号），然后重新生成正确的补丁。`;
 }
+
+/**
+ * 匹配到多处重复时，告知 AI 重复出现的位置
+ */
+export function buildDuplicateContext(filePath, fileContent, searchBlock, matchCount) {
+    const lines = fileContent.split('\n');
+    const searchLines = searchBlock.trim().split('\n');
+    const searchFirst = searchLines[0].trim();
+    
+    const matchLineNumbers = [];
+    lines.forEach((line, index) => {
+        if (line.trim() === searchFirst) {
+            matchLineNumbers.push(index + 1);
+        }
+    });
+
+    const lang = getLanguage(filePath);
+    return `❌ **补丁匹配不唯一** - \`${filePath}\`
+
+**检测到 ${matchCount} 处完全相同的代码块。**
+
+**你提供的 SEARCH 块：**
+\`\`\`${lang}
+${searchBlock}
+\`\`\`
+
+**该代码块出现在以下行号：** ${matchLineNumbers.join(', ')}
+
+请在 SEARCH 块中包含更多前后的代码行（上下文），以确保补丁能唯一精确地匹配到目标位置。`;
+}

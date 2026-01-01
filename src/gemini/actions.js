@@ -8,10 +8,10 @@ import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
 import { markAsApplied, unmarkAsApplied, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
 import { showToast } from '../shared/utils.js';
-import { buildMismatchContext, buildSyntaxErrorContext } from './feedback.js';
+import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext } from './feedback.js';
 
 /**
- * 创建操作按钮（用于代码块操作栏）
+* 创建操作按钮（用于代码块操作栏）
  */
 function createActionButton(text, onClick) {
     const btn = document.createElement('button');
@@ -96,6 +96,7 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         
         if (result.matchCount && result.matchCount > 1) {
             btn.textContent = `❌ ${result.matchCount}处重复`;
+            insertToInput(buildDuplicateContext(file, content, search, result.matchCount));
         } else if (result.alreadyApplied) {
             btn.textContent = '✅ 已应用';
             btn.style.background = '#059669';
