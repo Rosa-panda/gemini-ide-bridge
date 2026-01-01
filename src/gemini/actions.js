@@ -11,9 +11,9 @@ import { showToast } from '../shared/utils.js';
 import { buildMismatchContext, buildSyntaxErrorContext } from './feedback.js';
 
 /**
- * 创建按钮
+ * 创建操作按钮（用于代码块操作栏）
  */
-function createButton(text, onClick) {
+function createActionButton(text, onClick) {
     const btn = document.createElement('button');
     btn.textContent = text;
     Object.assign(btn.style, {
@@ -32,7 +32,7 @@ function createButton(text, onClick) {
  */
 function addUndoButton(bar, filePath, insertToInput) {
     const fileName = filePath.split('/').pop();
-    const undoBtn = createButton(`↩️ 撤销 → ${fileName}`, async () => {
+    const undoBtn = createActionButton(`↩️ 撤销 → ${fileName}`, async () => {
         const result = await fs.revertFile(filePath);
         if (result.success) {
             showToast('已撤销: ' + filePath);
@@ -52,7 +52,7 @@ function addUndoButton(bar, filePath, insertToInput) {
  */
 function addUndoButtonForPatch(bar, patch, insertToInput) {
     const fileName = patch.file.split('/').pop();
-    const undoBtn = createButton(`↩️ 撤销 → ${fileName}`, async () => {
+    const undoBtn = createActionButton(`↩️ 撤销 → ${fileName}`, async () => {
         const result = await fs.revertFile(patch.file);
         if (result.success) {
             showToast('已撤销: ' + patch.file);
@@ -168,7 +168,7 @@ export function injectActionBar(container, text, filePath, insertToInput) {
     const deletes = parseDelete(text);
     if (deletes.length > 0) {
         if (deletes.length > 1) {
-            const batchBtn = createButton(`🗑️ 批量删除 (${deletes.length}个文件)`, async () => {
+            const batchBtn = createActionButton(`🗑️ 批量删除 (${deletes.length}个文件)`, async () => {
                 const confirmMsg = `确定要删除这 ${deletes.length} 个文件吗？\n\n${deletes.map(d => '• ' + d.file).join('\n')}`;
                 if (!confirm(confirmMsg)) return;
 
@@ -197,7 +197,7 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         }
         
         deletes.forEach(del => {
-            const btn = createButton(`🗑️ 删除 → ${del.file}`, async () => {
+            const btn = createActionButton(`🗑️ 删除 → ${del.file}`, async () => {
                 if (!confirm(`确定删除文件 "${del.file}"？`)) return;
                 
                 btn.textContent = '正在删除...';
@@ -267,7 +267,7 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         const filesToProcess = parseMultipleFiles(text);
         
         if (filesToProcess.length > 1) {
-            const batchBtn = createButton(`➕ 批量创建/覆盖 (${filesToProcess.length}个文件)`, async () => {
+            const batchBtn = createActionButton(`➕ 批量创建/覆盖 (${filesToProcess.length}个文件)`, async () => {
                 batchBtn.textContent = '正在处理...';
                 let successCount = 0;
                 for (const file of filesToProcess) {
@@ -296,7 +296,7 @@ export function injectActionBar(container, text, filePath, insertToInput) {
                 ? `📝 覆盖 → ${file.path}` 
                 : (exists ? `💾 保存 → ${file.path}` : `➕ 创建 → ${file.path}`);
             
-            const btn = createButton(btnText, async () => {
+            const btn = createActionButton(btnText, async () => {
                 if (file.isOverwrite && exists && !confirm(`确定覆盖 "${file.path}"？`)) return;
                 btn.textContent = '处理中...';
                 const success = exists 
