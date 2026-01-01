@@ -41,6 +41,7 @@ const files = [
     'src/ui/index.js',
     
     // gemini
+    'src/gemini/diff.js',
     'src/gemini/feedback.js',
     'src/gemini/watcher.js',
     'src/gemini/actions.js',
