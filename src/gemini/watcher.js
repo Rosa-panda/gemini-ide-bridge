@@ -2,7 +2,7 @@
  * 代码块监听模块
  */
 
-import { extractFilePath, parseSearchReplace, parseDelete } from '../core/parser.js';
+import { extractFilePath } from '../core/parser.js';
 
 /**
  * 处理代码块，返回需要注入按钮的块

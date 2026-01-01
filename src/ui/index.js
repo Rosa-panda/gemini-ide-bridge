@@ -5,7 +5,7 @@
 import { fs } from '../core/fs.js';
 import { gemini } from '../gemini/index.js';
 import { getSystemPrompt } from '../shared/prompt.js';
-import { showToast, formatTokens, getLanguage } from '../shared/utils.js';
+import { showToast, formatTokens } from '../shared/utils.js';
 import { initThemeStyle, updateTheme } from '../shared/theme.js';
 import { createTrigger, createSidebar, createEmptyState, createContextMenu, createButton } from './sidebar.js';
 import { renderTree, filterTree } from './tree.js';

@@ -2,9 +2,7 @@
  * Gemini 交互模块入口
  */
 
-import { fs } from '../core/fs.js';
 import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
-import { extractFilePath } from '../core/parser.js';
 import { processCodeBlock, createWatcher } from './watcher.js';
 import { injectActionBar } from './actions.js';
 
