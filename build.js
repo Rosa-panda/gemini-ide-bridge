@@ -6,6 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 
+// 从 manifest.json 读取版本号（单一数据源）
+const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+const VERSION = manifest.version;
+
 // 新的模块化目录结构
 const files = [
     // shared
@@ -52,12 +56,14 @@ const files = [
 ];
 
 let output = `/**
- * Gemini IDE Bridge Core (V0.0.1)
+ * Gemini IDE Bridge Core (V${VERSION})
  * 自动构建于 ${new Date().toISOString()}
  */
 
 (function() {
 'use strict';
+
+const IDE_VERSION = '${VERSION}';
 
 `;
 
@@ -68,7 +74,7 @@ files.forEach(file => {
     // 移除 import/export 语句
     content = content.replace(/^import .+$/gm, '');
     content = content.replace(/^export (async )?(const|class|function)/gm, '$1$2');
-    content = content.replace(/^export \{[^}]+\}.*$/gm, '');  // 移除所有 export { } 语句（包括 from）
+    content = content.replace(/^export \{[^}]+\}.*$/gm, '');
     
     output += `// ========== ${file} ==========\n`;
     output += content + '\n\n';
@@ -86,11 +92,11 @@ if (document.body) {
     window.onload = () => ui.init();
 }
 
-window.IDE_BRIDGE = { fs, ui, gemini };
-console.log('%c[IDE Bridge] V0.0.1', 'color: #00ff00; font-size: 14px;');
+window.IDE_BRIDGE = { fs, ui, gemini, version: IDE_VERSION };
+console.log('%c[IDE Bridge] V' + IDE_VERSION, 'color: #00ff00; font-size: 14px;');
 
 })();
 `;
 
 fs.writeFileSync('ide_core.js', output);
-console.log('构建完成: ide_core.js');
+console.log('构建完成: ide_core.js (V' + VERSION + ')');

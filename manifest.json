@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Gemini IDE Bridge",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "本地代码桥接助手 - 支持版本回退",
   "permissions": [
     "activeTab",

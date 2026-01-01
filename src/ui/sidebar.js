@@ -159,7 +159,7 @@ export function createSidebar(onSearch) {
         padding: '8px', borderTop: '1px solid var(--ide-border)',
         fontSize: '10px', color: 'var(--ide-text-secondary)', textAlign: 'center'
     });
-    footer.textContent = 'V0.0.1 | 支持版本回退';
+    footer.textContent = `V${typeof IDE_VERSION !== 'undefined' ? IDE_VERSION : '?'} | 支持版本回退`;
     sidebar.appendChild(footer);
 
     return sidebar;
