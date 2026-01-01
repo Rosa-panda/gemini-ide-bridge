@@ -35,8 +35,8 @@ class FileSystem {
         try {
             this.fileHandles.clear();
             this.dirHandles.clear();
-            // 默认只扫描第一层
-            const tree = await this._scanDir(this.rootHandle, '', false);
+            // 递归扫描所有文件
+            const tree = await this._scanDir(this.rootHandle, '', true);
             return { success: true, rootName: this.rootHandle.name, tree };
         } catch (err) {
             console.error('[FS] 刷新失败:', err);
