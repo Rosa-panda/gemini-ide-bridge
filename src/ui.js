@@ -154,10 +154,34 @@ class UI {
         // 标题栏
         const header = document.createElement('div');
         Object.assign(header.style, {
-            padding: '12px 16px', borderBottom: '1px solid var(--ide-border)',
+            padding: '12px 16px', borderBottom: 'none', // 移除底边，为搜索框腾空间
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: 'transparent' // 透明背景，透出 sidebar 的 glass 效果
+            background: 'transparent'
         });
+
+        // 🔍 新增：搜索框容器
+        const searchBar = document.createElement('div');
+        Object.assign(searchBar.style, {
+            padding: '0 16px 12px 16px',
+            borderBottom: '1px solid var(--ide-border)'
+        });
+        
+        const searchInput = document.createElement('input');
+        searchInput.placeholder = '搜索文件... (Enter 发送结果)';
+        Object.assign(searchInput.style, {
+            width: '100%', padding: '6px 10px', borderRadius: '6px',
+            background: 'var(--ide-hint-bg)', color: 'var(--ide-text)',
+            border: '1px solid var(--ide-border)', fontSize: '12px',
+            outline: 'none', boxSizing: 'border-box'
+        });
+
+        // 实时过滤逻辑
+        searchInput.oninput = (e) => {
+            const term = e.target.value.toLowerCase();
+            this._filterTree(term);
+        };
+
+        searchBar.appendChild(searchInput);
         
         const title = document.createElement('div');
         title.style.display = 'flex';
@@ -199,6 +223,7 @@ class UI {
         header.appendChild(title);
         header.appendChild(closeBtn);
         sidebar.appendChild(header);
+        sidebar.appendChild(searchBar); // 注入搜索框
 
         // 操作栏
         const actionBar = document.createElement('div');
@@ -356,7 +381,56 @@ class UI {
         return btn;
     }
 
-    _renderTree(tree) {
+    // 🔍 深度搜索与过滤逻辑：递归检索内存中的完整树结构
+    _filterTree(term) {
+        const searchTerm = term.trim().toLowerCase();
+        
+        if (!searchTerm) {
+            // 清除搜索时，恢复正常显示
+            this._renderTree(this.currentTree);
+            return;
+        }
+
+        // 1. 递归寻找所有匹配项及其父级路径
+        const matches = new Set();
+        const parentsToExpand = new Set();
+
+        let fileMatchCount = 0;
+        const search = (nodes) => {
+            let foundInBranch = false;
+            for (const node of nodes) {
+                const isMatch = node.name.toLowerCase().includes(searchTerm);
+                let hasMatchedChild = false;
+
+                if (node.kind === 'directory' && node.children) {
+                    hasMatchedChild = search(node.children);
+                }
+
+                if (isMatch || hasMatchedChild) {
+                    matches.add(node.path);
+                    foundInBranch = true;
+                    // 🚀 仅当文件本身匹配时增加计数
+                    if (isMatch && node.kind === 'file') {
+                        fileMatchCount++;
+                    }
+                    if (hasMatchedChild) {
+                        parentsToExpand.add(node.path);
+                    }
+                }
+            }
+            return foundInBranch;
+        };
+
+        search(this.currentTree);
+
+        // 2. 自动展开包含匹配项的文件夹
+        parentsToExpand.forEach(path => this.folderStates.set(path, true));
+
+        // 3. 执行过滤渲染 (增加计数参数)
+        this._renderTree(this.currentTree, matches, searchTerm, fileMatchCount);
+    }
+
+    _renderTree(tree, matches = null, searchTerm = '', matchCount = 0) {
         const container = document.getElementById('ide-tree-container');
         if (!container) return;
         
@@ -367,14 +441,50 @@ class UI {
             padding: '6px 8px', marginBottom: '8px', background: 'var(--ide-hint-bg)',
             borderRadius: '4px', fontSize: '11px', color: 'var(--ide-hint-text)'
         });
-        hint.textContent = '💡 点击文件发送 | 右键文件夹更多';
+        hint.textContent = matches ? `🔍 找到 ${matchCount} 个匹配文件` : '💡 点击文件发送 | 右键文件夹更多';
         container.appendChild(hint);
         
-        this._buildTreeNodes(container, tree, 0);
+        this._buildTreeNodes(container, tree, 0, matches, searchTerm);
     }
 
-    _buildTreeNodes(container, nodes, level) {
+    // 🔍 新增：生成带有高亮标记的文件名 DOM 片段
+    _highlightName(name, searchTerm) {
+        // 如果没有搜索词，直接返回纯文本节点
+        if (!searchTerm) return document.createTextNode(name);
+
+        // 转义正则特殊字符，防止报错 (如搜索 ".")
+        const safeTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // 创建不区分大小写的全局正则，使用捕获组保留匹配项
+        const regex = new RegExp(`(${safeTerm})`, 'gi');
+        
+        // 分割字符串，捕获组也会被包含在数组中
+        const parts = name.split(regex);
+        
+        // 如果没有匹配项（数组长度为1），返回纯文本
+        if (parts.length === 1) return document.createTextNode(name);
+
+        const fragment = document.createDocumentFragment();
+        parts.forEach(part => {
+            // 判断当前片段是否为匹配项（不区分大小写）
+            if (part.toLowerCase() === searchTerm) {
+                const highlight = document.createElement('span');
+                highlight.className = 'ide-highlight';
+                highlight.textContent = part;
+                fragment.appendChild(highlight);
+            } else if (part) {
+                // 添加非空普通文本片段
+                fragment.appendChild(document.createTextNode(part));
+            }
+        });
+
+        return fragment;
+    }
+
+    _buildTreeNodes(container, nodes, level, matches = null, searchTerm = '') {
         nodes.forEach(node => {
+            // 🔍 搜索模式过滤：如果当前节点不在匹配路径上，则不渲染
+            if (matches && !matches.has(node.path)) return;
+
             const item = document.createElement('div');
             Object.assign(item.style, {
                 padding: '5px 4px', paddingLeft: (level * 14 + 4) + 'px',
@@ -396,8 +506,11 @@ class UI {
                 
                 const icon = this._createIcon('folder', 14, 'var(--ide-text-folder)');
                 
+                
                 const name = document.createElement('span');
-                name.textContent = node.name;
+                // name.textContent = node.name; // 🔴 原有逻辑
+                // 🟢 新增逻辑：追加高亮片段
+                name.appendChild(this._highlightName(node.name, searchTerm));
                 name.style.color = 'var(--ide-text)';
                 name.style.fontWeight = '500';
                 
@@ -415,7 +528,7 @@ class UI {
                 container.appendChild(item);
                 
                 if (isExpanded && node.children) {
-                    this._buildTreeNodes(container, node.children, level + 1);
+                    this._buildTreeNodes(container, node.children, level + 1, matches, searchTerm);
                 }
             } else {
                 const spacer = document.createElement('span');
@@ -425,7 +538,9 @@ class UI {
                 const icon = this._createIcon('file', 14, 'var(--ide-text-secondary)');
                 
                 const name = document.createElement('span');
-                name.textContent = node.name;
+                // name.textContent = node.name; // 🔴 原有逻辑
+                // 🟢 新增逻辑：追加高亮片段
+                name.appendChild(this._highlightName(node.name, searchTerm));
                 name.style.color = 'var(--ide-text-secondary)';
                 
                 item.appendChild(spacer);

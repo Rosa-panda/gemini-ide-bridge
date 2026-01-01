@@ -34,17 +34,19 @@ export const gemini = {
         }
         
         inputEl.focus();
-        // 使用 execCommand 或模拟更自然的输入，确保编辑器状态同步
-        const existing = inputEl.innerText || '';
+        
+        // 获取现有内容
+        const existing = inputEl.textContent || '';
         const newContent = existing ? existing + '\n\n' + text : text;
         
-        // 优先使用 innerText 触发编辑器的内部渲染逻辑
-        inputEl.innerText = newContent;
+        // 使用 textContent 设置纯文本（保留换行符，不触发 Trusted Types）
+        inputEl.textContent = newContent;
         
-        // 连续发送两个事件确保编辑器感应
+        // 触发事件确保编辑器感应
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
         inputEl.dispatchEvent(new Event('change', { bubbles: true }));
         
+        // 光标移到末尾
         const range = document.createRange();
         const sel = window.getSelection();
         range.selectNodeContents(inputEl);
@@ -334,9 +336,12 @@ export const gemini = {
         
         const result = tryReplace(content, search, replace);
         if (!result.success) {
-            showToast('未找到匹配内容', 'error');
+            showToast('未找到匹配内容，已发送上下文到输入框', 'error');
             btn.textContent = '❌ 未匹配';
             btn.style.background = '#dc2626';
+            
+            // 错误回传：提取文件相关代码发送给 AI
+            this._sendMismatchContext(file, content, search);
             return;
         }
 
@@ -354,7 +359,11 @@ export const gemini = {
             btn.textContent = `❌ ${shortError}`;
             btn.title = `语法错误: ${syntaxCheck.error}`; // 悬停显示完整错误
             btn.style.background = '#dc2626';
-            console.error('[Gemini] 语法检查失败:', file, syntaxCheck.error);
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            
+            // 错误回传：发送语法错误详情给 AI
+            this._sendSyntaxError(file, syntaxCheck.error, search, replace);
             return;
         }
 
@@ -414,6 +423,102 @@ export const gemini = {
         undoBtn.title = patch.file;
         undoBtn.style.background = '#f59e0b';
         bar.appendChild(undoBtn);
+    },
+
+    /**
+     * 错误回传：匹配失败时，提取文件上下文发送给 AI
+     */
+    _sendMismatchContext(filePath, fileContent, searchBlock) {
+        const lines = fileContent.split('\n');
+        const searchLines = searchBlock.trim().split('\n');
+        const searchFirst = searchLines[0].trim();
+        
+        // 尝试找到最相似的位置
+        let bestLine = -1;
+        let bestScore = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line === searchFirst) {
+                bestLine = i;
+                bestScore = 1;
+                break;
+            }
+            // 简单相似度：共同字符比例
+            if (line.length > 5 && searchFirst.length > 5) {
+                const common = [...line].filter(c => searchFirst.includes(c)).length;
+                const score = common / Math.max(line.length, searchFirst.length);
+                if (score > bestScore && score > 0.5) {
+                    bestScore = score;
+                    bestLine = i;
+                }
+            }
+        }
+        
+        // 提取上下文（前后各 5 行）
+        let contextStart, contextEnd;
+        if (bestLine >= 0) {
+            contextStart = Math.max(0, bestLine - 5);
+            contextEnd = Math.min(lines.length, bestLine + searchLines.length + 5);
+        } else {
+            // 找不到相似位置，发送文件开头
+            contextStart = 0;
+            contextEnd = Math.min(lines.length, 30);
+        }
+        
+        const contextLines = lines.slice(contextStart, contextEnd);
+        const numberedContext = contextLines.map((line, i) => 
+            `${String(contextStart + i + 1).padStart(4)}: ${line}`
+        ).join('\n');
+        
+        const lang = getLanguage(filePath);
+        const message = `❌ **补丁匹配失败** - \`${filePath}\`
+
+**你提供的 SEARCH 块：**
+\`\`\`${lang}
+${searchBlock}
+\`\`\`
+
+**文件实际内容（第 ${contextStart + 1}-${contextEnd} 行）：**
+\`\`\`${lang}
+${numberedContext}
+\`\`\`
+
+请检查 SEARCH 块是否与实际代码一致（注意空格、缩进、换行），然后重新生成正确的补丁。`;
+
+        this.insertToInput(message);
+    },
+
+    /**
+     * 错误回传：语法检查失败时，发送错误详情给 AI
+     */
+    _sendSyntaxError(filePath, error, searchBlock, replaceBlock) {
+        const lang = getLanguage(filePath);
+        
+        // 解析错误行号
+        const lineMatch = error.match(/第 (\d+) 行/);
+        const errorLine = lineMatch ? parseInt(lineMatch[1]) : -1;
+        
+        // 给 REPLACE 块加上行号，并高亮出错行
+        const replaceLines = replaceBlock.split('\n');
+        const numberedReplace = replaceLines.map((line, i) => {
+            const lineNum = String(i + 1).padStart(3);
+            const marker = (i + 1 === errorLine) ? ' >>> ' : '     ';
+            return `${lineNum}${marker}${line}`;
+        }).join('\n');
+        
+        const message = `❌ **语法检查失败** - \`${filePath}\`
+
+**错误信息：** ${error}
+
+**你提供的 REPLACE 块（已标注行号，>>> 标记出错行）：**
+\`\`\`${lang}
+${numberedReplace}
+\`\`\`
+
+请检查第 ${errorLine > 0 ? errorLine : '?'} 行附近的语法错误（括号是否匹配、是否有多余或缺失的符号），然后重新生成正确的补丁。`;
+
+        this.insertToInput(message);
     },
 
 };

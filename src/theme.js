@@ -30,6 +30,14 @@ export function getThemeCSS(theme) {
         @keyframes ideFadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes ideScaleIn { from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 
+        /* 搜索高亮 */
+        .ide-highlight {
+            background: rgba(255, 255, 0, 0.3); /* 半透明黄色用于强调 */
+            color: inherit; /* 继承原有文字颜色 */
+            border-radius: 2px;
+            font-weight: bold;
+        }
+
         /* 工具栏按钮 */
         .ide-btn {
             background: transparent;
