@@ -91,22 +91,22 @@ export function analyzeIndentLevels(lines) {
 
     const anchorIndent = indents[firstValidIdx];
     
-    // 改进：通过统计相邻行缩进差值的频率来检测源单位，增强对混合缩进的鲁棒性
+    // 改进：增加最小阈值并过滤掉单空格干扰（常见于 JSDoc ' * '）
     const steps = [];
     for (let i = 0; i < indents.length - 1; i++) {
         if (indents[i] >= 0 && indents[i + 1] >= 0) {
             const diff = Math.abs(indents[i + 1] - indents[i]);
-            if (diff > 0) steps.push(diff);
+            // 关键：现代 JS/Python 几乎没有 1 空格缩进，diff=1 通常是注释干扰，应忽略
+            if (diff >= 2) steps.push(diff);
         }
     }
 
     let sourceUnit = 4;
     if (steps.length > 0) {
-        // 取出现频率最高的差值作为缩进单位
         const counts = {};
         steps.forEach(s => counts[s] = (counts[s] || 0) + 1);
         const mostFrequent = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
-        sourceUnit = parseInt(mostFrequent);
+        sourceUnit = Math.max(2, parseInt(mostFrequent)); // 兜底：最小单位不小于 2
     } else {
         const diffs = indents.filter(n => n > anchorIndent).map(n => n - anchorIndent);
         if (diffs.length > 0) sourceUnit = Math.min(...diffs);
