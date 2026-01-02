@@ -61,18 +61,27 @@ export function normalizeIndent(lines, targetUnit, baseLevel) {
     const levels = analyzeIndentLevels(lines);
     
     return lines.map((line, i) => {
-        if (!line.trim()) return line;
+        // 关键：清洗 AI 可能输出的不可见干扰字符（如 \u200B）
+        const cleanLine = line.replace(/[\u200B-\u200D\uFEFF]/g, '');
+        if (!cleanLine.trim()) return cleanLine;
         
-        // 占位符行也需要正确缩进
-        if (line.trim().match(/^__LITERAL_\d+__$/)) {
+        // 占位符行保护
+        if (cleanLine.trim().match(/^__LITERAL_\d+__$/)) {
             const level = levels[i];
             const totalLevel = baseLevel + level;
-            return targetUnit.repeat(totalLevel) + line.trim();
+            return targetUnit.repeat(totalLevel) + cleanLine.trim();
         }
         
         const level = levels[i];
         const totalLevel = baseLevel + level;
-        return targetUnit.repeat(totalLevel) + line.trimStart();
+        const trimmed = cleanLine.trimStart();
+        
+        // 保护 JSDoc 格式：如果是以星号开头（包括 * 和 */），强制补回一个装饰空格
+        if (/^\*/.test(trimmed)) {
+            return targetUnit.repeat(totalLevel) + ' ' + trimmed;
+        }
+        
+        return targetUnit.repeat(totalLevel) + trimmed;
     });
 }
 
@@ -106,10 +115,14 @@ export function analyzeIndentLevels(lines) {
         const counts = {};
         steps.forEach(s => counts[s] = (counts[s] || 0) + 1);
         const mostFrequent = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
-        sourceUnit = Math.max(2, parseInt(mostFrequent)); // 兜底：最小单位不小于 2
+        sourceUnit = Math.max(2, parseInt(mostFrequent)); 
     } else {
         const diffs = indents.filter(n => n > anchorIndent).map(n => n - anchorIndent);
-        if (diffs.length > 0) sourceUnit = Math.min(...diffs);
+        // 关键：在 fallback 逻辑中也要强制最小步长为 2，防止 JSDoc 干扰导致的 sourceUnit=1
+        if (diffs.length > 0) {
+            const minDiff = Math.min(...diffs);
+            sourceUnit = Math.max(2, minDiff);
+        }
     }
 
     return indents.map(indent => {
