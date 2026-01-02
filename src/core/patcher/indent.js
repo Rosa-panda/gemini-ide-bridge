@@ -73,7 +73,8 @@ export function normalizeIndent(lines, targetUnit, baseLevel) {
         }
         
         const level = levels[i];
-        const totalLevel = baseLevel + level;
+        // 核心防护：确保最终计算的缩进层级永远不小于 0，防止 repeat() 抛出 RangeError
+        const totalLevel = Math.max(0, baseLevel + level);
         const trimmed = cleanLine.trimStart();
         
         // 保护 JSDoc 格式：如果是以星号开头（包括 * 和 */），强制补回一个装饰空格
@@ -128,7 +129,7 @@ export function analyzeIndentLevels(lines) {
     return indents.map(indent => {
         if (indent < 0) return 0;
         const diff = indent - anchorIndent;
-        if (diff <= 0) return 0;
+        // 改进的安全检查：计算相对层级，由 normalizeIndent 确保最终 totalLevel 不为负
         return Math.round(diff / sourceUnit);
     });
 }

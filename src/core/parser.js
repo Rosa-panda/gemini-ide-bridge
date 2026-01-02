@@ -32,7 +32,8 @@ export function isOverwriteMode(text) {
  */
 export function parseDelete(text) {
     const deletes = [];
-    const regex = /<{6,7}\s*DELETE\s*\[([^\]]+)\]\s*[\s\S]*?>{6,7}\s*END/g;
+    // 同步优化：增加 {6,10} 兼容性与行首锚点，防止误匹配
+    const regex = /^<{6,10}\s*DELETE\s*\[([^\]]+)\]\s*[\s\S]*?^>{6,10}\s*END\s*$/gm;
     
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -52,14 +53,21 @@ export function parseDelete(text) {
  */
 export function parseSearchReplace(text) {
     const patches = [];
-    // 支持 [文件路径] 或 文件路径（无方括号）
-    const regex = /<{6,7} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*\n([\s\S]*?)\n={6,7}\n?([\s\S]*?)>{6,7} REPLACE/g;
+    /**
+     * 稳健性增强正则：
+     * 1. ^...$ + m 模式：确保标记必须占据整行。
+     * 2. \s*?\n：允许标记行末尾有不可见空格。
+     * 3. ^={6,10}\s*$：确保分隔符必须在行首，且允许行末空格。
+     * 4. 避免了非行首的 ======= 误触发截断。
+     */
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n^>{6,10} REPLACE\s*$/gm;
     
     let match;
     while ((match = regex.exec(text)) !== null) {
         patches.push({
-            file: match[1] || match[2] || null,  // [路径] 或 路径
+            file: match[1] || match[2] || null,
             search: match[3],
+            // 移除末尾可能存在的换行符，保持内容纯净
             replace: match[4].replace(/\n$/, ''),
             isDelete: match[4].trim() === ''
         });

@@ -7,7 +7,7 @@ import { parseDelete, parseSearchReplace, parseMultipleFiles } from '../core/par
 import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
 import { markAsApplied, unmarkAsApplied, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
-import { showToast } from '../shared/utils.js';
+import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
 import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext, buildFileNotFoundContext, buildReadErrorContext } from './feedback.js';
 
 /**
@@ -45,6 +45,28 @@ function addUndoButton(bar, filePath, insertToInput) {
     undoBtn.title = filePath;
     undoBtn.style.background = '#f59e0b';
     bar.appendChild(undoBtn);
+}
+
+/**
+ * 添加"发送当前文件"按钮
+ */
+function addSendFileButton(bar, filePath, insertToInput) {
+    const fileName = filePath.split('/').pop();
+    const sendBtn = createActionButton(`📤 发送 → ${fileName}`, async () => {
+        const content = await fs.readFile(filePath);
+        if (content === null) {
+            showToast('读取失败', 'error');
+            return;
+        }
+        const lang = getLanguage(filePath);
+        const text = `📄 **文件最新状态** - \`${filePath}\`\n\n以下是该文件当前的完整内容（已应用所有修改）：\n\n\`\`\`${lang}\n${content}\n\`\`\``;
+        insertToInput(text);
+        showToast(`已发送: ${fileName} (~${formatTokens(estimateTokens(text))} tokens)`);
+    });
+    sendBtn.className = 'ide-send-btn';
+    sendBtn.title = `发送 ${filePath} 的最新内容给 AI`;
+    sendBtn.style.background = '#8b5cf6';
+    bar.appendChild(sendBtn);
 }
 
 /**
@@ -284,8 +306,12 @@ export function injectActionBar(container, text, filePath, insertToInput) {
     const patches = parseSearchReplace(text);
     
     if (patches.length > 0) {
+        // 收集所有涉及的文件（去重）
+        const involvedFiles = new Set();
+        
         patches.forEach((patch, idx) => {
             patch._idx = idx; // 保存索引供撤销时使用
+            if (patch.file) involvedFiles.add(patch.file);
             
             const btn = document.createElement('button');
             Object.assign(btn.style, {
@@ -326,8 +352,18 @@ export function injectActionBar(container, text, filePath, insertToInput) {
                 });
             }
         });
+        
+        // 为每个涉及的文件添加发送按钮（只要文件存在）
+        involvedFiles.forEach(filePath => {
+            if (fs.hasFile(filePath)) {
+                addSendFileButton(bar, filePath, insertToInput);
+            }
+        });
     } else if (text.includes('FILE:')) {
         const filesToProcess = parseMultipleFiles(text);
+        
+        // 收集所有涉及的文件（去重）
+        const involvedFiles = new Set();
         
         if (filesToProcess.length > 1) {
             const batchBtn = createActionButton(`➕ 批量创建/覆盖 (${filesToProcess.length}个文件)`, async () => {
@@ -355,6 +391,8 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         
         filesToProcess.forEach(file => {
             const exists = fs.hasFile(file.path);
+            if (exists) involvedFiles.add(file.path);
+            
             const btnText = file.isOverwrite && exists 
                 ? `📝 覆盖 → ${file.path}` 
                 : (exists ? `💾 保存 → ${file.path}` : `➕ 创建 → ${file.path}`);
@@ -370,6 +408,8 @@ export function injectActionBar(container, text, filePath, insertToInput) {
                     btn.style.background = '#059669';
                     if (!exists) {
                         window.dispatchEvent(new CustomEvent('ide-refresh-tree'));
+                        // 新建成功后添加发送按钮
+                        addSendFileButton(bar, file.path, insertToInput);
                     } else {
                         addUndoButton(bar, file.path, insertToInput);
                     }
@@ -380,6 +420,11 @@ export function injectActionBar(container, text, filePath, insertToInput) {
             });
             if (file.isOverwrite && exists) btn.style.background = '#f59e0b';
             bar.appendChild(btn);
+        });
+        
+        // 为每个已存在的文件添加发送按钮
+        involvedFiles.forEach(filePath => {
+            addSendFileButton(bar, filePath, insertToInput);
         });
     }
 

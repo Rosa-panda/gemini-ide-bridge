@@ -51,7 +51,7 @@ export const gemini = {
 
     sendFile(filePath, content) {
         const lang = getLanguage(filePath);
-        const text = `文件 \`${filePath}\`:\n\n\`\`\`${lang}\n${content}\n\`\`\``;
+        const text = `📄 **文件最新状态** - \`${filePath}\`\n\n以下是该文件当前的完整内容：\n\n\`\`\`${lang}\n${content}\n\`\`\``;
         const result = this.insertToInput(text);
         if (result.success) {
             showToast(`已发送: ${filePath.split('/').pop()} (~${formatTokens(result.tokens)} tokens)`);

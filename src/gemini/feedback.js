@@ -64,6 +64,15 @@ function detectIssues(searchBlock, fileContent) {
         issues.push(`❌ SEARCH 块第 ${trailingLines.map(x => x.line).join(', ')} 行有行尾空格`);
         fixes.push('删除所有行尾空格');
     }
+
+    // 不可见字符检测 (Gremlins)
+    const hiddenChars = searchLines
+        .map((l, i) => ({ line: i + 1, has: /[\u200B-\u200D\uFEFF]/.test(l) }))
+        .filter(x => x.has);
+    if (hiddenChars.length > 0) {
+        issues.push(`❌ SEARCH 块第 ${hiddenChars.map(x => x.line).join(', ')} 行包含不可见干扰字符 (如零宽空格)`);
+        fixes.push('请清洗代码，移除所有非 ASCII 的不可见控制字符');
+    }
     
     // 首行检测
     const firstLine = searchLines[0]?.trim();
@@ -203,7 +212,8 @@ export function buildMismatchContext(filePath, fileContent, searchBlock) {
         // 缩进检测
         const firstLine = searchLines[0]?.trim();
         if (best.score < 100 && best.lines[0]?.trim() === firstLine) {
-            response += `\n⚠️ **疑似缩进错误**：首行内容一致但匹配度非 100%，请检查缩进层级。\n`;
+            response += `\n⚠️ **疑似缩进错误**：首行文字匹配但由于缩进不一致导致失效。\n`;
+            response += `💡 *提示*：引擎现已支持 Outdent (向外缩进)，请确保 REPLACE 块的相对缩进逻辑正确。\n`;
         }
 
         response += `\n**最佳匹配：** 第 ${best.startLine}-${best.endLine} 行 (${best.score}% 相似)\n`;

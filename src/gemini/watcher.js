@@ -19,8 +19,9 @@ export function processCodeBlock(block, processedBlocks) {
     if (text.includes('IGNORE_IDE_ACTION')) return null;
 
     const fileMatch = extractFilePath(text);
-    const hasSearchReplace = /<{6,7} SEARCH/.test(text) && />{6,7} REPLACE/.test(text);
-    const hasDelete = /<{6,7} DELETE/.test(text) && />{6,7} END/.test(text);
+    // 增加 ^ 锚点和多行模式，确保标记是在行首，避免匹配到字符串内部的示例
+    const hasSearchReplace = /^<{6,10} SEARCH/m.test(text) && /^>{6,10} REPLACE/m.test(text);
+    const hasDelete = /^<{6,10} DELETE/m.test(text) && /^>{6,10} END/m.test(text);
     
     if (fileMatch || hasSearchReplace || hasDelete) {
         return { container, text, fileMatch };
