@@ -46,6 +46,28 @@ export function parseDelete(text) {
 }
 
 /**
+ * 解析 READ 块（请求读取文件片段）
+ * 格式：<<<<<<< READ [path/to/file] 起始行-结束行
+ * 或：<<<<<<< READ [path/to/file]（读取整个文件）
+ */
+export function parseRead(text) {
+    const reads = [];
+    // 匹配 READ 指令，支持可选的行号范围
+    const regex = /^<{6,10}\s*READ\s*\[([^\]]+)\](?:\s+(\d+)-(\d+))?\s*$/gm;
+    
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        reads.push({
+            file: match[1].trim(),
+            startLine: match[2] ? parseInt(match[2]) : null,
+            endLine: match[3] ? parseInt(match[3]) : null
+        });
+    }
+    
+    return reads;
+}
+
+/**
  * 解析 SEARCH/REPLACE 块（支持空 replace 表示删除）
  * 支持两种格式：
  * - <<<<<<< SEARCH [path/to/file]

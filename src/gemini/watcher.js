@@ -22,8 +22,9 @@ export function processCodeBlock(block, processedBlocks) {
     // 增加 ^ 锚点和多行模式，确保标记是在行首，避免匹配到字符串内部的示例
     const hasSearchReplace = /^<{6,10} SEARCH/m.test(text) && /^>{6,10} REPLACE/m.test(text);
     const hasDelete = /^<{6,10} DELETE/m.test(text) && /^>{6,10} END/m.test(text);
+    const hasRead = /^<{6,10}\s*READ\s*\[/m.test(text);
     
-    if (fileMatch || hasSearchReplace || hasDelete) {
+    if (fileMatch || hasSearchReplace || hasDelete || hasRead) {
         return { container, text, fileMatch };
     }
     

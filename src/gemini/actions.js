@@ -3,7 +3,7 @@
  */
 
 import { fs } from '../core/fs.js';
-import { parseDelete, parseSearchReplace, parseMultipleFiles } from '../core/parser.js';
+import { parseDelete, parseSearchReplace, parseMultipleFiles, parseRead } from '../core/parser.js';
 import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
 import { markAsApplied, unmarkAsApplied, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
@@ -425,6 +425,61 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         // 为每个已存在的文件添加发送按钮
         involvedFiles.forEach(filePath => {
             addSendFileButton(bar, filePath, insertToInput);
+        });
+    }
+
+    // READ 指令（请求读取文件片段）
+    const reads = parseRead(text);
+    if (reads.length > 0) {
+        reads.forEach(read => {
+            const fileName = read.file.split('/').pop();
+            const rangeText = read.startLine && read.endLine 
+                ? ` (${read.startLine}-${read.endLine}行)` 
+                : ' (全部)';
+            
+            const btn = createActionButton(`📖 读取 → ${fileName}${rangeText}`, async () => {
+                if (!fs.hasFile(read.file)) {
+                    showToast('文件不存在: ' + read.file, 'error');
+                    btn.textContent = '❌ 文件不存在';
+                    btn.style.background = '#dc2626';
+                    return;
+                }
+                
+                const content = await fs.readFile(read.file);
+                if (content === null) {
+                    showToast('读取失败', 'error');
+                    return;
+                }
+                
+                const lines = content.split('\n');
+                const totalLines = lines.length;
+                
+                let selectedContent;
+                let rangeInfo;
+                
+                if (read.startLine && read.endLine) {
+                    // 指定行号范围
+                    const start = Math.max(1, read.startLine) - 1;
+                    const end = Math.min(totalLines, read.endLine);
+                    selectedContent = lines.slice(start, end).join('\n');
+                    rangeInfo = `第 ${read.startLine}-${read.endLine} 行（共 ${totalLines} 行）`;
+                } else {
+                    // 读取整个文件
+                    selectedContent = content;
+                    rangeInfo = `全部内容（共 ${totalLines} 行）`;
+                }
+                
+                const lang = getLanguage(read.file);
+                const responseText = `📄 **文件片段** - \`${read.file}\` ${rangeInfo}\n\n\`\`\`${lang}\n${selectedContent}\n\`\`\``;
+                
+                insertToInput(responseText);
+                showToast(`已发送: ${fileName} (~${formatTokens(estimateTokens(responseText))} tokens)`);
+                
+                btn.textContent = `✅ 已发送 → ${fileName}`;
+                btn.style.background = '#059669';
+            });
+            btn.style.background = '#10b981';
+            bar.appendChild(btn);
         });
     }
 
