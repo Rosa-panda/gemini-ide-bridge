@@ -3,32 +3,41 @@
  */
 
 /**
- * 检查 JS/TS 代码语法是否有效
- */
+* 检查 JS/TS 代码语法是否有效
+*/
 export function checkJsSyntax(code, filePath = '') {
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
     const jsExts = ['js', 'jsx', 'ts', 'tsx', 'mjs'];
     if (filePath && !jsExts.includes(ext)) {
         return { valid: true };
     }
-    const stripped = stripCommentsAndStrings(code);
-    return checkBrackets(stripped);
+    const { result, finalStack } = stripCommentsAndStrings(code);
+    
+    // 检查模板字符串或插值是否未闭合
+    if (finalStack.length > 1) {
+        const lastMode = finalStack[finalStack.length - 1];
+        return { 
+            valid: false, 
+            error: lastMode === 'T' ? "未闭合的模板字符串" : "插值表达式 (${}) 未完成" 
+        };
+    }
+    
+    return checkBrackets(result);
 }
 
 /**
- * 移除代码中的注释、字符串和正则表达式
- * 支持嵌套模板字符串的正确解析
- */
+* 移除代码中的注释、字符串和正则表达式
+* 支持嵌套模板字符串和插值表达式的正确解析
+*/
 function stripCommentsAndStrings(code) {
     let result = '';
     let i = 0;
     const len = code.length;
     
-    // 状态栈：追踪模板字符串嵌套
-    // 'T' = 在模板字符串文本中, 'I' = 在插值表达式中
-    const stack = [];
+    // 状态栈：追踪模板模式 ('T' = 文本, 'I' = 代码模式)
+    // 初始为 'I'，确保顶层代码和插值内部的逻辑一致
+    const stack = ['I'];
     
-    // 美元符号的字符码，避免直接写 '$' 被某些工具误处理
     const DOLLAR = String.fromCharCode(36);
     
     const canBeRegex = () => {
@@ -38,100 +47,108 @@ function stripCommentsAndStrings(code) {
         const lastChar = result[j];
         return /[=(:,;\[!&|?{}<>+\-*%^~()]/.test(lastChar) || 
             result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
-        };
+    };
     
     while (i < len) {
         const char = code[i];
         const next = code[i + 1];
-        const inTemplate = stack.length > 0 && stack[stack.length - 1] === 'T';
-        
-        // 1. 在模板字符串文本区域
-        if (inTemplate) {
+        const currentMode = stack[stack.length - 1]; // 'T' 或 'I'
+
+        // 1. 处于模板字符串文本区域 ('T')
+        if (currentMode === 'T') {
             if (char === '`') {
-                // 模板字符串结束
                 stack.pop();
                 i++;
             } else if (char === DOLLAR && next === '{') {
-                // 进入插值表达式
                 stack.push('I');
-                result += '{';  // 保留 { 给括号检查
+                result += '{'; 
                 i += 2;
             } else if (char === '\\') {
-                // 转义字符，跳过两个
+                // 即使在转义中也要注意换行同步
+                if (next === '\n') result += '\n';
                 i += 2;
             } else {
-                // 普通模板文本，忽略
+                if (char === '\n') result += '\n'; // 保持行号
                 i++;
             }
             continue;
         }
         
-        // 2. 在插值表达式中遇到 }
-        if (char === '}' && stack.length > 0 && stack[stack.length - 1] === 'I') {
-            stack.pop();  // 退出插值，回到模板文本
-            result += '}';
-            i++;
-            continue;
-        }
-
-        // 3. 以下是普通代码模式（顶层或插值内部）
+        // 2. 处于代码区域（顶层或插值表达式内部 'I'）
         
-        // 单行注释
+        // 优先识别注释（防止注释内的 } 干扰栈）
         if (char === '/' && next === '/') {
             i += 2;
             while (i < len && code[i] !== '\n') i++;
-            continue;
+            continue; // 保留下一个 iteration 处理 \n 以维持行号
         }
-        
-        // 多行注释
         if (char === '/' && next === '*') {
             i += 2;
-            while (i < len - 1 && !(code[i] === '*' && code[i+1] === '/')) i++;
+            while (i < len - 1 && !(code[i] === '*' && code[i+1] === '/')) {
+                if (code[i] === '\n') result += '\n'; // 关键：保留多行注释内的换行
+                i++;
+            }
             i += 2;
             continue;
         }
-        
-        // 正则表达式
+
+        // 识别字符串和正则（防止内部的 } 干扰栈）
+        if (char === '"' || char === "'") {
+            const quote = char;
+            i++;
+            while (i < len && code[i] !== quote) {
+                if (code[i] === '\\') {
+                    i++; // 跳过转义符本身
+                    if (i < len && code[i] === '\n') result += '\n';
+                } else if (code[i] === '\n') {
+                    result += '\n';
+                }
+                i++;
+            }
+            i++;
+            continue;
+        }
         if (char === '/' && next !== '/' && next !== '*' && canBeRegex()) {
             i++;
             let inClass = false;
             while (i < len) {
-                const c = code[i];
-                if (c === '/' && !inClass) break;
-                if (c === '\\') i++;
-                else if (c === '[') inClass = true;
-                else if (c === ']') inClass = false;
+                if (code[i] === '/' && !inClass) break;
+                if (code[i] === '\\') {
+                    i++;
+                } else if (code[i] === '[') {
+                    inClass = true;
+                } else if (code[i] === ']') {
+                    inClass = false;
+                }
                 i++;
             }
             i++;
             while (i < len && /[gimsuy]/.test(code[i])) i++;
             continue;
         }
-        
-        // 普通字符串（单引号、双引号）
-        if (char === '"' || char === "'") {
-            const quote = char;
+
+        // 处理核心语法符号
+        if (char === '{') {
+            stack.push('I');
+            result += '{';
             i++;
-            while (i < len && code[i] !== quote) {
-                if (code[i] === '\\') i++;
-                i++;
+        } else if (char === '}') {
+            // 保护根作用域：只有当栈中有超过 1 个元素且处于代码模式时才弹出
+            if (stack.length > 1 && currentMode === 'I') {
+                stack.pop();
             }
+            result += '}';
             i++;
-            continue;
-        }
-        
-        // 模板字符串开始
-        if (char === '`') {
+        } else if (char === '`') {
             stack.push('T');
             i++;
-            continue;
+        } else {
+            result += char;
+            i++;
         }
-        
-        result += char;
-        i++;
     }
     
-    return result;
+    return { result, finalStack: stack };
 }
 
 /**

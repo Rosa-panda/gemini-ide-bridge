@@ -50,12 +50,18 @@ export function extractLiterals(code) {
                     i += 2;
                     continue;
                 }
-                // 检测 ${
+                // 检测 ${ (插值开始) 或普通 { (插值内部的对象)
                 if (code[i] === '$' && code[i + 1] === '{') {
                     depth++;
                     i += 2;
                     continue;
                 }
+                if (code[i] === '{' && depth > 1) {
+                    depth++;
+                    i++;
+                    continue;
+                }
+                // 只有在插值深度内才减少深度
                 if (code[i] === '}' && depth > 1) {
                     depth--;
                     i++;
@@ -90,12 +96,15 @@ export function extractLiterals(code) {
 }
 
 /**
- * 还原被保护的字符串
- */
+* 还原被保护的字符串
+*/
 export function restoreLiterals(code, literals) {
     let result = code;
     for (const [placeholder, original] of literals) {
-        result = result.replace(placeholder, original);
+        // 安全修复：使用 split/join 替代 replace
+        // 理由：String.prototype.replace(str, str) 会解析 original 中的 $ 符号
+        // 这在代码替换场景下极易导致内容损毁（如把 $1 误当成正则分组）
+        result = result.split(placeholder).join(original);
     }
     return result;
 }

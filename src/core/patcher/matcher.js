@@ -3,23 +3,31 @@
  */
 
 /**
- * 核心：将代码转化为纯粹的逻辑行序列（忽略缩进、空行、换行符差异）
- */
+* 核心：将代码转化为纯粹的逻辑行序列（忽略空行、换行符差异）
+* 对于 Python 等缩进敏感语言，保留缩进深度信息
+*/
 export function getLogicSignature(code) {
     return code.replace(/\r\n/g, '\n')
-               .replace(/\r/g, '\n')
-               .split('\n')
-               .map((line, index) => ({ 
-                   content: line.trim().replace(/[\u200B-\u200D\uFEFF]/g, ''), 
-                   originalIndex: index 
-               }))
-               .filter(item => item.content.length > 0);
+                .replace(/\r/g, '\n')
+                .split('\n')
+                .map((line, index) => {
+                    const trimmed = line.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+                    const indentMatch = line.match(/^(\s*)/);
+                    const indentStr = indentMatch ? indentMatch[1].replace(/\t/g, '    ') : '';
+                    return { 
+                        content: trimmed, 
+                        indent: indentStr.length,
+                        originalIndex: index 
+                    };
+                })
+                .filter(item => item.content.length > 0);
 }
 
 /**
- * 极致鲁棒的计数器：支持直接传入逻辑签名或原始代码进行滑动窗口匹配
- */
-export function countMatches(content, search) {
+* 极致鲁棒的计数器：支持逻辑签名匹配
+* @param {boolean} isStrictIndent 是否开启严格缩进校验（Python 建议开启）
+*/
+export function countMatches(content, search, isStrictIndent = false) {
     const contentSigs = typeof content === 'string' ? getLogicSignature(content) : content;
     const searchSigs = typeof search === 'string' ? getLogicSignature(search) : search;
     
@@ -27,16 +35,40 @@ export function countMatches(content, search) {
     
     let count = 0;
     for (let i = 0; i <= contentSigs.length - searchSigs.length; i++) {
-        let match = true;
-        for (let j = 0; j < searchSigs.length; j++) {
-            if (contentSigs[i + j].content !== searchSigs[j].content) {
-                match = false;
-                break;
-            }
+        if (checkMatchAt(contentSigs, searchSigs, i, isStrictIndent)) {
+            count++;
         }
-        if (match) count++;
     }
     return count;
+}
+
+/**
+* 内部函数：检查指定位置是否匹配
+*/
+function checkMatchAt(contentSigs, searchSigs, startIdx, isStrictIndent) {
+    // 基础逻辑匹配
+    for (let j = 0; j < searchSigs.length; j++) {
+        if (contentSigs[startIdx + j].content !== searchSigs[j].content) {
+            return false;
+        }
+    }
+    
+    // Python 语义缩进校验：检查相对缩进变化是否一致
+    if (isStrictIndent && searchSigs.length > 1) {
+        const fileBaseIndent = contentSigs[startIdx].indent;
+        const searchBaseIndent = searchSigs[0].indent;
+        
+        for (let j = 1; j < searchSigs.length; j++) {
+            const fileRelative = contentSigs[startIdx + j].indent - fileBaseIndent;
+            const searchRelative = searchSigs[j].indent - searchBaseIndent;
+            
+            // 注意：这里允许缩进单位不一致（如 2 空格 vs 4 空格），只要变化方向和比例一致
+            // 但为简单起见，我们先校验绝对相对值。如果需要更强兼容性，可以改用比例校验。
+            if (fileRelative !== searchRelative) return false;
+        }
+    }
+    
+    return true;
 }
 
 /**
@@ -68,19 +100,12 @@ export function isAlreadyApplied(content, search, replace) {
 }
 
 /**
- * 查找逻辑匹配的物理位置
- * @returns {number} 匹配的物理起始行索引，未找到返回 -1
- */
-export function findMatchPosition(contentSigs, searchSigs) {
+* 查找逻辑匹配的物理位置
+* @returns {number} 匹配的物理起始行索引，未找到返回 -1
+*/
+export function findMatchPosition(contentSigs, searchSigs, isStrictIndent = false) {
     for (let i = 0; i <= contentSigs.length - searchSigs.length; i++) {
-        let match = true;
-        for (let j = 0; j < searchSigs.length; j++) {
-            if (contentSigs[i + j].content !== searchSigs[j].content) {
-                match = false;
-                break;
-            }
-        }
-        if (match) {
+        if (checkMatchAt(contentSigs, searchSigs, i, isStrictIndent)) {
             return contentSigs[i].originalIndex;
         }
     }

@@ -77,9 +77,16 @@ export function normalizeIndent(lines, targetUnit, baseLevel) {
         const totalLevel = Math.max(0, baseLevel + level);
         const trimmed = cleanLine.trimStart();
         
-        // 保护 JSDoc 格式：如果是以星号开头（包括 * 和 */），强制补回一个装饰空格
-        if (/^\*/.test(trimmed)) {
-            return targetUnit.repeat(totalLevel) + ' ' + trimmed;
+        // 保护 JSDoc 格式：增强启发式判断
+        // 仅当 trimmed 以 * 开头，且原文件该位置的上下文暗示这是 JSDoc 时才补空格
+        // 这里的简单方案是：如果 baseLevel 大于 0 且 trimmed 是 *，通常就是 JSDoc
+        if (/^\*(\s|\/|$)/.test(trimmed) && totalLevel > 0) {
+            // 进一步防止误伤：如果这一行看起来像数学乘法（例如后面紧跟变量名而非 @tags）
+            // 我们检查它是否以 * [a-zA-Z] 开头且没有明显的 JSDoc 标志
+            const isLikelyMath = /^\*\s+[a-zA-Z_]/.test(trimmed) && !trimmed.includes('@');
+            if (!isLikelyMath) {
+                return targetUnit.repeat(totalLevel) + ' ' + trimmed;
+            }
         }
         
         return targetUnit.repeat(totalLevel) + trimmed;

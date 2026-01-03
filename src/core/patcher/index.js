@@ -45,7 +45,8 @@ export function tryReplace(content, search, replace, filePath = '') {
     }
     
     // 2. 唯一性检查
-    const matchCount = countMatches(normalizedContent, normalizedSearch);
+    const isPython = filePath.endsWith('.py');
+    const matchCount = countMatches(normalizedContent, normalizedSearch, isPython);
     console.log('[Patcher] matchCount:', matchCount);
     
     if (matchCount === 0) {
@@ -69,7 +70,7 @@ export function tryReplace(content, search, replace, filePath = '') {
     const searchSigs = getLogicSignature(normalizedSearch);
     const lines = normalizedContent.split('\n');
     
-    const matchPhysicalStart = findMatchPosition(contentSigs, searchSigs);
+    const matchPhysicalStart = findMatchPosition(contentSigs, searchSigs, isPython);
 
     if (matchPhysicalStart !== -1) {
         // 确定物理结束位置
@@ -106,8 +107,8 @@ export function tryReplace(content, search, replace, filePath = '') {
         };
     }
     
-    // 模糊匹配
-    const fuzzyResult = fuzzyReplace(normalizedContent, normalizedSearch, maskedReplace, literals);
+    // 模糊匹配 (Python 环境下增加缩进感知)
+    const fuzzyResult = fuzzyReplace(normalizedContent, normalizedSearch, maskedReplace, literals, isPython);
     if (fuzzyResult) {
         if (fuzzyResult.ambiguity) {
             console.log('[Patcher] 拦截：模糊匹配存在多处');
@@ -143,32 +144,43 @@ export function tryReplace(content, search, replace, filePath = '') {
 }
 
 /**
- * 模糊匹配替换 (处理空白差异 + 智能缩进对齐)
- */
-function fuzzyReplace(content, search, maskedReplace, literals) {
+* 模糊匹配替换 (处理空白差异 + 智能缩进对齐)
+*/
+function fuzzyReplace(content, search, maskedReplace, literals, isStrictIndent = false) {
     if (!search || !search.trim()) return null;
 
     const lines = content.split('\n');
     const searchLines = search.replace(/\r\n/g, '\n').split('\n');
     
     const matches = [];
+    // 预计算 SEARCH 块的缩进签名（用于 Python 严格模式）
+    const searchSigs = isStrictIndent ? getLogicSignature(search) : null;
+
     for (let i = 0; i <= lines.length - searchLines.length; i++) {
         let match = true;
+        
+        // 1. 基础文本匹配 (trim 校验)
         for (let j = 0; j < searchLines.length; j++) {
             const lineTrim = lines[i + j].trim();
             const searchTrim = searchLines[j].trim();
             
             if (searchTrim === '') {
-                if (lineTrim !== '') {
-                    match = false;
-                    break;
-                }
+                if (lineTrim !== '') { match = false; break; }
             } else if (lineTrim !== searchTrim) {
                 match = false;
                 break;
             }
         }
         
+        // 2. Python 严格模式下的额外缩进校验
+        if (match && isStrictIndent && searchSigs) {
+            const segment = lines.slice(i, i + searchLines.length).join('\n');
+            const contentSigs = getLogicSignature(segment);
+            if (!checkMatchAt(contentSigs, searchSigs, 0, true)) {
+                match = false;
+            }
+        }
+
         if (match) {
             matches.push(i);
         }

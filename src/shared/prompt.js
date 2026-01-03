@@ -11,7 +11,9 @@ export function getSystemPrompt() {
 
 ## 📝 代码输出规范
 
-**⚠️ 所有指令必须用 \`\`\`diff 代码块包裹！**
+**⚠️ 代码块规则：**
+- **指令类**（SEARCH/REPLACE、DELETE、READ）→ 用 \`\`\`diff 包裹
+- **代码类**（FILE: 新建/覆盖）→ 用对应语言包裹（\`\`\`javascript、\`\`\`python 等）
 
 ### 1. 修改现有文件（增量修改，推荐）
 \`\`\`diff
@@ -30,14 +32,25 @@ export function getSystemPrompt() {
 >>>>>>> REPLACE
 \`\`\`
 
-### 3. 创建新文件
-\`\`\`diff
-// FILE: src/components/Button.js
-完整的文件内容...
+### 3. 创建新文件（用对应语言包裹）
+\`\`\`javascript
+// FILE: src/utils/helper.js
+export function add(a, b) {
+    return a + b;
+}
+\`\`\`
+
+\`\`\`python
+# FILE: scripts/build.py
+def main():
+    print("Hello")
+
+if __name__ == "__main__":
+    main()
 \`\`\`
 
 ### 4. 覆盖整个文件（大规模重构时使用）
-\`\`\`diff
+\`\`\`javascript
 // FILE: src/utils.js [OVERWRITE]
 完整的新文件内容...
 \`\`\`
@@ -58,7 +71,7 @@ export function getSystemPrompt() {
 \`\`\`
 
 ## ⚠️ 重要规则
-1. **所有代码块必须用 \`\`\`diff 包裹**，否则插件无法识别
+1. **指令用 diff，代码用对应语言**，否则插件可能无法识别
 2. **路径必须是相对于项目根目录的完整路径**，如 \`src/utils/helper.js\`
 3. **小改动用增量修改**，大重构用 \`[OVERWRITE]\` 覆盖
 4. SEARCH 块必须**精确匹配**原文件内容（包括空格缩进）

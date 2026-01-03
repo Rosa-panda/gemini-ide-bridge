@@ -103,7 +103,8 @@ function resolveDep(dep, currentFile, fileType) {
     }
     
     if (fileType === 'python') {
-        const isRelative = dep.startsWith('.');
+        const dotsMatch = dep.match(/^\.+/);
+        const dotCount = dotsMatch ? dotsMatch[0].length : 0;
         const cleanDep = dep.replace(/^\.+/, '');
         const dotPath = cleanDep.replace(/\./g, '/');
         
@@ -112,8 +113,13 @@ function resolveDep(dep, currentFile, fileType) {
 
         for (const p of pathVariants) {
             const candidates = [];
-            if (isRelative) {
-                candidates.push(resolvePath(currentDir, p));
+            if (dotCount > 0) {
+                // 处理 Python 相对路径层级: . 是当前目录, .. 是上一级
+                let targetDir = currentDir;
+                for (let k = 1; k < dotCount; k++) {
+                    targetDir = targetDir.substring(0, targetDir.lastIndexOf('/')) || '.';
+                }
+                candidates.push(resolvePath(targetDir, p));
             } else {
                 candidates.push(p); 
                 candidates.push(resolvePath(currentDir, p));
