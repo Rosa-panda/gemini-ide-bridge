@@ -89,7 +89,7 @@ export function parseSearchReplace(text) {
     let match;
     while ((match = regex.exec(text)) !== null) {
         patches.push({
-            file: match[1] || match[2] || null,
+            file: (match[1] || match[2] || null)?.trim(),
             search: match[3],
             // 移除末尾可能存在的换行符，保持内容纯净
             replace: match[4].replace(/\n$/, ''),
