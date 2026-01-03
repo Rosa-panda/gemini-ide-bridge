@@ -23,9 +23,10 @@ export { detectLineEnding, restoreLineEnding };
  * 1. 已应用检测 - 防止重复插入
  * 2. 唯一性检查 - 匹配数 > 1 时拒绝
  * 3. 语义掩码 - 保护多行字符串
- * 4. 换行符保持 - 记录并恢复原始风格
+ * 4. 语法自检 - 内置 JS/TS 括号匹配校验
+ * 5. 换行符保持 - 记录并恢复原始风格
  */
-export function tryReplace(content, search, replace) {
+export function tryReplace(content, search, replace, filePath = '') {
     // 0. 记录原始换行符风格
     const originalEnding = detectLineEnding(content);
     const normalizedContent = normalizeLineEnding(content);
@@ -84,10 +85,22 @@ export function tryReplace(content, search, replace) {
         const before = lines.slice(0, matchPhysicalStart);
         const after = lines.slice(matchPhysicalEnd + 1);
         const result = [...before, ...restoredReplace, ...after].join('\n');
+        const finalContent = restoreLineEnding(result, originalEnding);
+
+        // 5. 语法自检：拦截破坏性的 JS/TS 错误
+        const syntax = checkJsSyntax(finalContent, filePath);
+        if (!syntax.valid) {
+            return {
+                success: false,
+                reason: `补丁应用后将导致语法错误：${syntax.error}`,
+                isSyntaxError: true,
+                errorDetails: syntax.error
+            };
+        }
         
         return {
             success: true,
-            content: restoreLineEnding(result, originalEnding),
+            content: finalContent,
             matchLine: matchPhysicalStart + 1,
             lineCount: physicalLineCount
         };
@@ -96,9 +109,31 @@ export function tryReplace(content, search, replace) {
     // 模糊匹配
     const fuzzyResult = fuzzyReplace(normalizedContent, normalizedSearch, maskedReplace, literals);
     if (fuzzyResult) {
+        if (fuzzyResult.ambiguity) {
+            console.log('[Patcher] 拦截：模糊匹配存在多处');
+            return {
+                success: false,
+                reason: `模糊匹配到 ${fuzzyResult.matchCount} 处相似代码块，请提供更多上下文（如函数名或注释）以确保唯一匹配`,
+                matchCount: fuzzyResult.matchCount
+            };
+        }
+
+        const finalContent = restoreLineEnding(fuzzyResult.content, originalEnding);
+        
+        // 5. 语法自检（模糊匹配同样需要）
+        const syntax = checkJsSyntax(finalContent, filePath);
+        if (!syntax.valid) {
+            return {
+                success: false,
+                reason: `补丁应用后将导致语法错误：${syntax.error}`,
+                isSyntaxError: true,
+                errorDetails: syntax.error
+            };
+        }
+
         return {
             success: true,
-            content: restoreLineEnding(fuzzyResult.content, originalEnding),
+            content: finalContent,
             matchLine: fuzzyResult.matchLine,
             lineCount: fuzzyResult.lineCount
         };
@@ -116,34 +151,47 @@ function fuzzyReplace(content, search, maskedReplace, literals) {
     const lines = content.split('\n');
     const searchLines = search.replace(/\r\n/g, '\n').split('\n');
     
+    const matches = [];
     for (let i = 0; i <= lines.length - searchLines.length; i++) {
         let match = true;
         for (let j = 0; j < searchLines.length; j++) {
-            if (searchLines[j].trim() === '') {
-                if (lines[i + j].trim() !== '') {
+            const lineTrim = lines[i + j].trim();
+            const searchTrim = searchLines[j].trim();
+            
+            if (searchTrim === '') {
+                if (lineTrim !== '') {
                     match = false;
                     break;
                 }
-            } else if (lines[i + j].trim() !== searchLines[j].trim()) {
+            } else if (lineTrim !== searchTrim) {
                 match = false;
                 break;
             }
         }
         
         if (match) {
-            const before = lines.slice(0, i);
-            const after = lines.slice(i + searchLines.length);
-            const alignedReplace = alignIndent(lines, i, searchLines, maskedReplace);
-            const restoredReplace = alignedReplace.map(line => restoreLiterals(line, literals));
-            
-            return {
-                content: [...before, ...restoredReplace, ...after].join('\n'),
-                matchLine: i + 1,
-                lineCount: searchLines.length
-            };
+            matches.push(i);
         }
     }
-    return null;
+
+    if (matches.length === 0) return null;
+    
+    // 歧义拦截：模糊匹配到的结果不唯一
+    if (matches.length > 1) {
+        return { ambiguity: true, matchCount: matches.length };
+    }
+
+    const matchIndex = matches[0];
+    const before = lines.slice(0, matchIndex);
+    const after = lines.slice(matchIndex + searchLines.length);
+    const alignedReplace = alignIndent(lines, matchIndex, searchLines, maskedReplace);
+    const restoredReplace = alignedReplace.map(line => restoreLiterals(line, literals));
+    
+    return {
+        content: [...before, ...restoredReplace, ...after].join('\n'),
+        matchLine: matchIndex + 1,
+        lineCount: searchLines.length
+    };
 }
 
 /**

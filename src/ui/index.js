@@ -4,7 +4,7 @@
 
 import { fs } from '../core/fs.js';
 import { gemini } from '../gemini/index.js';
-import { getSystemPrompt } from '../shared/prompt.js';
+import { getSystemPrompt, getHandoverPrompt } from '../shared/prompt.js';
 import { showToast, formatTokens } from '../shared/utils.js';
 import { initThemeStyle, initThemeWatcher } from '../shared/theme.js';
 import { createTrigger, createSidebar, createEmptyState, createContextMenu, createButton } from './sidebar.js';
@@ -129,8 +129,13 @@ class UI {
             }
         }));
         
-        // 刷新
-        actionBar.appendChild(createButton('🔄 刷新', () => this.refreshTree()));
+        // 交接摘要
+        actionBar.appendChild(createButton('📦 交接', () => {
+            const result = gemini.insertToInput(getHandoverPrompt());
+            if (result.success) {
+                showToast('已发送交接请求');
+            }
+        }));
     }
 }
 

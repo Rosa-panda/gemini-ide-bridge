@@ -36,15 +36,18 @@ function parseJsDeps(content) {
 
 function parsePythonDeps(content) {
     const deps = [];
+    // 1. 处理 from module import (...)
     const fromImportParenthesesRegex = /from\s+([\w.]+)\s+import\s*\(([\s\S]*?)\)/g;
-    const importRegex = /^import\s+([\w.]+)/gm;
+    // 2. 处理 import module [as alias]
+    const importRegex = /^\s*import\s+([\w.]+)/gm;
+    // 3. 处理 from .[module] import ...
+    const simpleFromRegex = /from\s+([\w.]+)\s+import(?!\s*\()/g;
     
     let match;
     while ((match = fromImportParenthesesRegex.exec(content)) !== null) {
         deps.push(match[1]);
     }
     
-    const simpleFromRegex = /from\s+([\w.]+)\s+import(?!\s*\()/g;
     while ((match = simpleFromRegex.exec(content)) !== null) {
         deps.push(match[1]);
     }

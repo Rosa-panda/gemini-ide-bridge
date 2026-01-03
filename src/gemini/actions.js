@@ -130,8 +130,39 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         return;
     }
     
-    const result = tryReplace(content, search, replace);
+    const result = tryReplace(content, search, replace, file);
     if (!result.success) {
+        if (result.isSyntaxError) {
+            const shortError = result.errorDetails.length > 20 
+                ? result.errorDetails.slice(0, 20) + '...' 
+                : result.errorDetails;
+            showToast(`⚠️ 语法检查未通过`, 'error');
+            insertToInput(buildSyntaxErrorContext(file, result.errorDetails, search, replace, result.content));
+            
+            btn.textContent = `⚠️ 强制预览 (${shortError})`;
+            btn.title = `语法错误: ${result.errorDetails}\n点击可强制预览并应用`;
+            btn.style.background = '#f59e0b';
+            
+            btn.onclick = async () => {
+                const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
+                if (confirmed) {
+                    btn.textContent = '应用中...';
+                    const success = await fs.writeFile(file, result.content);
+                    if (success) {
+                        btn.textContent = '✅ 已应用';
+                        btn.style.background = '#059669';
+                        showToast('已修改: ' + file);
+                        markAsApplied(file, search);
+                        addUndoButtonForPatch(bar, patch, insertToInput, btn, patch._idx || 0);
+                    } else {
+                        btn.textContent = '❌ 写入失败';
+                        btn.style.background = '#dc2626';
+                    }
+                }
+            };
+            return;
+        }
+
         const reason = result.reason || '未知错误';
         showToast(reason, 'error');
         
@@ -147,48 +178,6 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         }
         
         btn.style.background = result.alreadyApplied ? '#059669' : '#dc2626';
-        return;
-    }
-
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-
-    const syntaxCheck = checkJsSyntax(result.content, file);
-    if (!syntaxCheck.valid) {
-        const shortError = syntaxCheck.error.length > 20 
-            ? syntaxCheck.error.slice(0, 20) + '...' 
-            : syntaxCheck.error;
-        showToast(`⚠️ 语法检查未通过`, 'error');
-        
-        // 自动反馈给 Gemini
-        insertToInput(buildSyntaxErrorContext(file, syntaxCheck.error, search, replace, result.content));
-        
-        // 按钮变成"强制预览"
-        btn.textContent = `⚠️ 强制预览 (${shortError})`;
-        btn.title = `语法错误: ${syntaxCheck.error}\n点击可强制预览并应用`;
-        btn.style.background = '#f59e0b';
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        
-        // 重新绑定点击事件，下次点击跳过语法检查
-        btn.onclick = async () => {
-            const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1, syntaxCheck.error);
-            if (confirmed) {
-                btn.textContent = '应用中...';
-                const success = await fs.writeFile(file, result.content);
-                if (success) {
-                    btn.textContent = '✅ 已应用';
-                    btn.title = `于 ${new Date().toLocaleTimeString()} 强制应用`;
-                    btn.style.background = '#059669';
-                    showToast('已修改: ' + file);
-                    markAsApplied(file, search);
-                    addUndoButtonForPatch(bar, patch, insertToInput, btn, patch._idx || 0);
-                } else {
-                    btn.textContent = '❌ 写入失败';
-                    btn.style.background = '#dc2626';
-                }
-            }
-        };
         return;
     }
 
