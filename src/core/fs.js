@@ -54,6 +54,9 @@ class FileSystem {
         const entries = [];
         this.dirHandles.set(path || '.', dirHandle);
         
+        const PARALLEL_LIMIT = 6; // 并行扫描子目录数量
+        const pendingDirs = []; // 待处理的子目录
+        
         for await (const entry of dirHandle.values()) {
             if (IGNORE_DIRS.has(entry.name)) continue;
             const relPath = path ? `${path}/${entry.name}` : entry.name;
@@ -62,15 +65,33 @@ class FileSystem {
                 this.fileHandles.set(relPath, entry);
                 entries.push({ name: entry.name, kind: 'file', path: relPath });
             } else if (entry.kind === 'directory') {
-                // 记录目录句柄，方便后续懒加载
                 this.dirHandles.set(relPath, entry);
-                entries.push({
+                const dirEntry = {
                     name: entry.name, kind: 'directory', path: relPath,
-                    // 如果不是递归模式，初始化为空数组，标记为待加载
-                    children: recursive ? await this._scanDir(entry, relPath) : []
-                });
+                    children: []
+                };
+                entries.push(dirEntry);
+                if (recursive) {
+                    pendingDirs.push({ handle: entry, path: relPath, entry: dirEntry });
+                }
             }
         }
+        
+        // 并行扫描子目录（限制并发数）
+        for (let i = 0; i < pendingDirs.length; i += PARALLEL_LIMIT) {
+            const batch = pendingDirs.slice(i, i + PARALLEL_LIMIT);
+            const results = await Promise.all(
+                batch.map(dir => this._scanDir(dir.handle, dir.path, true))
+            );
+            batch.forEach((dir, idx) => {
+                dir.entry.children = results[idx];
+            });
+            // 每批处理完让出主线程
+            if (i + PARALLEL_LIMIT < pendingDirs.length) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+        
         return entries.sort((a, b) => {
             if (a.kind === b.kind) return a.name.localeCompare(b.name);
             return a.kind === 'directory' ? -1 : 1;

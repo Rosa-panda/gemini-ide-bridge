@@ -2,18 +2,25 @@
  * 匹配器模块 - 逻辑签名匹配算法
  */
 
+// 预编译正则 - 避免每次调用重复编译
+const RE_CRLF = /\r\n/g;
+const RE_CR = /\r/g;
+const RE_ZERO_WIDTH = /[\u200B-\u200D\uFEFF]/g;
+const RE_LEADING_SPACE = /^(\s*)/;
+const RE_TAB = /\t/g;
+
 /**
 * 核心：将代码转化为纯粹的逻辑行序列（忽略空行、换行符差异）
 * 对于 Python 等缩进敏感语言，保留缩进深度信息
 */
 export function getLogicSignature(code) {
-    return code.replace(/\r\n/g, '\n')
-                .replace(/\r/g, '\n')
+    return code.replace(RE_CRLF, '\n')
+                .replace(RE_CR, '\n')
                 .split('\n')
                 .map((line, index) => {
-                    const trimmed = line.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
-                    const indentMatch = line.match(/^(\s*)/);
-                    const indentStr = indentMatch ? indentMatch[1].replace(/\t/g, '    ') : '';
+                    const trimmed = line.trim().replace(RE_ZERO_WIDTH, '');
+                    const indentMatch = line.match(RE_LEADING_SPACE);
+                    const indentStr = indentMatch ? indentMatch[1].replace(RE_TAB, '    ') : '';
                     return { 
                         content: trimmed, 
                         indent: indentStr.length,

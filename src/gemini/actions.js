@@ -5,7 +5,7 @@
 import { fs } from '../core/fs.js';
 import { parseDelete, parseSearchReplace, parseMultipleFiles, parseRead } from '../core/parser.js';
 import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
-import { markAsApplied, unmarkAsApplied, checkIfApplied } from '../core/state.js';
+import { markAsApplied, unmarkAsApplied, getPatchKey } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
 import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
 import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext, buildFileNotFoundContext, buildReadErrorContext } from './feedback.js';
@@ -330,15 +330,47 @@ export function injectActionBar(container, text, filePath, insertToInput) {
             };
             
             bar.appendChild(btn);
-
+        });
+        
+        // 按文件分组批量检查已应用状态（避免同一文件重复读取）
+        const filePatches = new Map(); // file -> [{patch, btn, idx}]
+        patches.forEach((patch, idx) => {
             if (patch.file) {
-                checkIfApplied(patch.file, patch.search, patch.replace, fs).then(status => {
-                    if (status.applied) {
+                if (!filePatches.has(patch.file)) {
+                    filePatches.set(patch.file, []);
+                }
+                filePatches.get(patch.file).push({ 
+                    patch, 
+                    btn: bar.children[idx], 
+                    idx 
+                });
+            }
+        });
+        
+        // 每个文件只读取一次，批量检查其所有补丁
+        filePatches.forEach(async (items, filePath) => {
+            if (!fs.hasFile(filePath)) return;
+            
+            const content = await fs.readFile(filePath);
+            if (content === null) return;
+            
+            const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
+            const normalizedContent = normalize(content);
+            
+            for (const { patch, btn, idx } of items) {
+                const normalizedSearch = normalize(patch.search);
+                const searchExists = normalizedContent.includes(normalizedSearch);
+                
+                if (!searchExists) {
+                    // search 不存在，可能已应用
+                    const data = JSON.parse(localStorage.getItem('ide-applied-patches') || '{}');
+                    const key = getPatchKey(patch.file, patch.search);
+                    if (data[key]) {
                         btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
                         btn.style.background = '#059669';
                         addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
                     }
-                });
+                }
             }
         });
         
