@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T06:39:22.904Z
+ * 自动构建于 2026-01-08T07:02:20.304Z
  */
 
 (function() {
@@ -2629,8 +2629,145 @@ function generateNumberedLines(code, startLine = 1) {
 
 // ========== src/dialog/preview.js ==========
 /**
- * 预览对话框 - 变更确认
+ * 预览对话框 - 变更确认（Side-by-Side Diff）
  */
+
+/**
+ * Myers Diff 算法 - 计算两个文本的行级差异
+ * @param {string[]} oldLines - 原始文本的行数组
+ * @param {string[]} newLines - 新文本的行数组
+ * @returns {Array} 差异数组，每项包含 {type: 'equal'|'delete'|'insert', oldLine?, newLine?}
+ */
+function computeLineDiff(oldLines, newLines) {
+    const m = oldLines.length;
+    const n = newLines.length;
+    
+    // 动态规划表：dp[i][j] 表示 oldLines[0..i-1] 和 newLines[0..j-1] 的最小编辑距离
+    const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
+    
+    // 初始化第一行和第一列
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    
+    // 填充 DP 表
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (oldLines[i - 1] === newLines[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1]; // 相同，不需要操作
+            } else {
+                dp[i][j] = 1 + Math.min(
+                    dp[i - 1][j],     // 删除
+                    dp[i][j - 1],     // 插入
+                    dp[i - 1][j - 1]  // 替换
+                );
+            }
+        }
+    }
+    
+    // 回溯构建差异序列
+    const diffs = [];
+    let i = m, j = n;
+    
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+            // 相同行
+            diffs.unshift({ type: 'equal', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
+            i--;
+            j--;
+        } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
+            // 修改行（替换）
+            diffs.unshift({ type: 'modify', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
+            i--;
+            j--;
+        } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
+            // 删除行
+            diffs.unshift({ type: 'delete', oldLine: oldLines[i - 1] });
+            i--;
+        } else {
+            // 插入行
+            diffs.unshift({ type: 'insert', newLine: newLines[j - 1] });
+            j--;
+        }
+    }
+    
+    return diffs;
+}
+
+/**
+ * 字符级 Diff - 用于高亮修改行内的具体差异
+ * @param {string} oldText - 原始文本
+ * @param {string} newText - 新文本
+ * @returns {Array} 差异数组，每项包含 {type: 'equal'|'delete'|'insert', value}
+ */
+function computeCharDiff(oldText, newText) {
+    const m = oldText.length;
+    const n = newText.length;
+    
+    // 动态规划表
+    const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
+    
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (oldText[i - 1] === newText[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+            }
+        }
+    }
+    
+    // 回溯
+    const diffs = [];
+    let i = m, j = n;
+    
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldText[i - 1] === newText[j - 1]) {
+            diffs.unshift({ type: 'equal', value: oldText[i - 1] });
+            i--;
+            j--;
+        } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
+            diffs.unshift({ type: 'delete', value: oldText[i - 1] });
+            i--;
+        } else {
+            diffs.unshift({ type: 'insert', value: newText[j - 1] });
+            j--;
+        }
+    }
+    
+    return diffs;
+}
+
+/**
+ * 渲染带字符级高亮的行
+ * @param {Array} charDiffs - 字符级差异数组
+ * @param {string} type - 'old' 或 'new'
+ * @returns {HTMLElement} 渲染后的行元素
+ */
+function renderHighlightedLine(charDiffs, type) {
+    const span = document.createElement('span');
+    
+    charDiffs.forEach(diff => {
+        const part = document.createElement('span');
+        part.textContent = diff.value;
+        
+        if (type === 'old' && diff.type === 'delete') {
+            // 删除的字符用深红色背景
+            part.style.backgroundColor = '#8b0000';
+            part.style.color = '#fff';
+        } else if (type === 'new' && diff.type === 'insert') {
+            // 插入的字符用深绿色背景
+            part.style.backgroundColor = '#006400';
+            part.style.color = '#fff';
+        }
+        
+        span.appendChild(part);
+    });
+    
+    return span;
+}
 
 /**
  * 显示预览对话框
@@ -2663,7 +2800,7 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
             borderRadius: '12px', 
             padding: '24px', 
             zIndex: '2147483649',
-            width: '90vw', maxWidth: '1200px', height: '85vh',
+            width: '90vw', maxWidth: '1400px', height: '85vh',
             display: 'flex', flexDirection: 'column',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             animation: 'ideScaleIn 0.2s ease-out'
@@ -2701,7 +2838,6 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
                 color: '#ef4444', fontSize: '13px'
             });
             
-            // 使用 DOM API 而不是 innerHTML（Trusted Types 安全）
             const strongEl = document.createElement('strong');
             strongEl.textContent = '🚨 语法校验警告：';
             warningBanner.appendChild(strongEl);
@@ -2720,31 +2856,40 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
             dialog.appendChild(warningBanner);
         }
 
-        // Diff 内容区
+        // Diff 内容区（Side-by-Side）
         const diffBody = document.createElement('div');
         Object.assign(diffBody.style, {
-            flex: '1', display: 'flex', gap: '16px', 
-            overflow: 'hidden', minHeight: '0'
+            flex: '1', display: 'flex', gap: '0', 
+            overflow: 'hidden', minHeight: '0',
+            border: '1px solid var(--ide-border)',
+            borderRadius: '8px'
         });
 
-        const createPane = (content, type, lineStart) => {
-            const pane = document.createElement('div');
-            Object.assign(pane.style, {
+        // 计算行级差异
+        const oldLines = oldText.split('\n');
+        const newLines = newText.split('\n');
+        const lineDiffs = computeLineDiff(oldLines, newLines);
+
+        // 创建左右两个面板
+        const createSidePanel = (side) => {
+            const panel = document.createElement('div');
+            Object.assign(panel.style, {
                 flex: '1', display: 'flex', flexDirection: 'column',
-                border: '1px solid var(--ide-border)', borderRadius: '8px',
-                overflow: 'hidden', background: 'var(--ide-hint-bg)'
+                overflow: 'hidden', background: 'var(--ide-hint-bg)',
+                borderRight: side === 'left' ? '1px solid var(--ide-border)' : 'none'
             });
 
-            const isAdd = type === 'add';
-            const paneHeader = document.createElement('div');
-            paneHeader.textContent = isAdd ? '🟢 REPLACE (新增/修改)' : '🔴 SEARCH (原始/删除)';
-            Object.assign(paneHeader.style, {
+            // 面板头部
+            const panelHeader = document.createElement('div');
+            panelHeader.textContent = side === 'left' ? '🔴 原始代码 (SEARCH)' : '🟢 修改后代码 (REPLACE)';
+            Object.assign(panelHeader.style, {
                 padding: '10px 16px', fontSize: '12px', fontWeight: 'bold',
-                background: isAdd ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                color: isAdd ? '#22c55e' : '#ef4444',
+                background: side === 'left' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                color: side === 'left' ? '#ef4444' : '#22c55e',
                 borderBottom: '1px solid var(--ide-border)'
             });
 
+            // 代码容器
             const codeContainer = document.createElement('div');
             Object.assign(codeContainer.style, {
                 flex: '1', display: 'flex', overflow: 'auto',
@@ -2752,6 +2897,7 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
                 fontSize: '13px', lineHeight: '1.6'
             });
 
+            // 行号列
             const lineNumbers = document.createElement('div');
             Object.assign(lineNumbers.style, {
                 padding: '16px 12px 16px 16px',
@@ -2763,31 +2909,82 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
                 minWidth: '50px'
             });
 
-            const codeArea = document.createElement('pre');
+            // 代码列
+            const codeArea = document.createElement('div');
             Object.assign(codeArea.style, {
-                flex: '1', margin: '0', padding: '16px',
+                flex: '1', padding: '16px',
                 overflow: 'visible', color: 'var(--ide-text)',
                 whiteSpace: 'pre'
             });
 
-            const lines = content.split('\n');
-            lines.forEach((_, i) => {
-                const lineNumDiv = document.createElement('div');
-                lineNumDiv.textContent = String(lineStart + i);
-                lineNumbers.appendChild(lineNumDiv);
-            });
-            codeArea.textContent = content;
-
+            panel.appendChild(panelHeader);
             codeContainer.appendChild(lineNumbers);
             codeContainer.appendChild(codeArea);
+            panel.appendChild(codeContainer);
 
-            pane.appendChild(paneHeader);
-            pane.appendChild(codeContainer);
-            return pane;
+            return { panel, lineNumbers, codeArea };
         };
 
-        diffBody.appendChild(createPane(oldText, 'del', startLine));
-        diffBody.appendChild(createPane(newText, 'add', startLine));
+        const leftPanel = createSidePanel('left');
+        const rightPanel = createSidePanel('right');
+
+        // 渲染差异
+        let leftLineNum = startLine;
+        let rightLineNum = startLine;
+
+        lineDiffs.forEach(diff => {
+            const leftLineDiv = document.createElement('div');
+            const rightLineDiv = document.createElement('div');
+            const leftCodeDiv = document.createElement('div');
+            const rightCodeDiv = document.createElement('div');
+
+            if (diff.type === 'equal') {
+                // 相同行 - 灰色显示
+                leftLineDiv.textContent = String(leftLineNum++);
+                rightLineDiv.textContent = String(rightLineNum++);
+                leftCodeDiv.textContent = diff.oldLine;
+                rightCodeDiv.textContent = diff.newLine;
+                leftCodeDiv.style.color = 'var(--ide-text-secondary)';
+                rightCodeDiv.style.color = 'var(--ide-text-secondary)';
+            } else if (diff.type === 'delete') {
+                // 删除行 - 左侧红色背景，右侧空白
+                leftLineDiv.textContent = String(leftLineNum++);
+                rightLineDiv.textContent = '';
+                leftCodeDiv.textContent = diff.oldLine;
+                leftCodeDiv.style.backgroundColor = '#3d1a1a';
+                leftCodeDiv.style.color = '#ff6b6b';
+                rightCodeDiv.textContent = '';
+                rightCodeDiv.style.backgroundColor = '#1a1a1a';
+            } else if (diff.type === 'insert') {
+                // 插入行 - 右侧绿色背景，左侧空白
+                leftLineDiv.textContent = '';
+                rightLineDiv.textContent = String(rightLineNum++);
+                leftCodeDiv.textContent = '';
+                leftCodeDiv.style.backgroundColor = '#1a1a1a';
+                rightCodeDiv.textContent = diff.newLine;
+                rightCodeDiv.style.backgroundColor = '#1a3d1a';
+                rightCodeDiv.style.color = '#6bff6b';
+            } else if (diff.type === 'modify') {
+                // 修改行 - 两侧都显示，字符级高亮
+                leftLineDiv.textContent = String(leftLineNum++);
+                rightLineDiv.textContent = String(rightLineNum++);
+                
+                const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
+                leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old'));
+                rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new'));
+                
+                leftCodeDiv.style.backgroundColor = '#3d2a1a';
+                rightCodeDiv.style.backgroundColor = '#2a3d1a';
+            }
+
+            leftPanel.lineNumbers.appendChild(leftLineDiv);
+            leftPanel.codeArea.appendChild(leftCodeDiv);
+            rightPanel.lineNumbers.appendChild(rightLineDiv);
+            rightPanel.codeArea.appendChild(rightCodeDiv);
+        });
+
+        diffBody.appendChild(leftPanel.panel);
+        diffBody.appendChild(rightPanel.panel);
 
         // 底部按钮
         const footer = document.createElement('div');
@@ -2823,7 +3020,6 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
         footer.appendChild(cancelBtn);
         footer.appendChild(confirmBtn);
 
-        dialog.appendChild(header);
         dialog.appendChild(diffBody);
         dialog.appendChild(footer);
 

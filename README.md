@@ -52,6 +52,16 @@
 ## 更新日志
 
 ### V0.0.4 (当前)
+- **Side-by-Side Diff 预览**
+  - 完全重写 `preview.js`，实现 IDE 级别的并排对比效果
+  - **行级 Diff**：基于 Myers 算法，精确识别新增/删除/修改行
+  - **字符级高亮**：修改行内的具体差异用深色背景标记
+  - **视觉效果**：
+    - 删除行：左侧红色背景，右侧空白
+    - 新增行：右侧绿色背景，左侧空白
+    - 修改行：两侧都显示，字符级差异深色高亮
+    - 相同行：灰色显示
+  - 参考知识库中的 Myers Diff、LCS、WordDiff 等算法实现
 - **文件变化自动检测**
   - 新增 `watcher.js` 文件监听模块
   - 基于轮询 + 多重优化策略（页面可见性、requestIdleCallback、增量检测、防抖合并）
@@ -249,7 +259,7 @@ gemini-ide-bridge/
 | 文件 | 功能 |
 |------|------|
 | `index.js` | 对话框模块入口 |
-| `preview.js` | 变更预览对话框，左右对比 SEARCH/REPLACE |
+| `preview.js` | Side-by-Side Diff 预览对话框，行级 + 字符级差异高亮 |
 | `history.js` | 历史版本列表，支持预览和回退到指定版本 |
 
 ### gemini/ - Gemini 交互
