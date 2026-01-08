@@ -93,9 +93,17 @@ class UI {
             const dot = document.getElementById('ide-status-dot');
             if (dot) dot.style.display = 'block';
             
-            // 注册文件变化回调，自动刷新文件树
+            // 注册文件变化回调，智能刷新文件树
             fs.onFileChange((changes) => {
-                console.log('[UI] 检测到文件变化，自动刷新:', changes);
+                // 只有增删才需要刷新树结构，修改不需要
+                const structureChanges = changes.filter(c => c.type === 'add' || c.type === 'delete');
+                
+                if (structureChanges.length === 0) {
+                    console.log('[UI] 仅文件内容修改，跳过刷新');
+                    return;
+                }
+                
+                console.log('[UI] 检测到结构变化，刷新文件树:', structureChanges);
                 this.refreshTree();
             });
             

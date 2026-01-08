@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T05:37:53.059Z
+ * 自动构建于 2026-01-08T06:39:22.904Z
  */
 
 (function() {
@@ -714,11 +714,12 @@ class FileWatcher {
         
         this.isRunning = true;
         this.isPaused = document.hidden;
+        this._isWarmingUp = true; // 预热模式：首次扫描只建立缓存，不报告变化
         
         // 监听页面可见性变化
         document.addEventListener('visibilitychange', this._onVisibilityChange);
         
-        console.log('[Watcher] 启动监听循环');
+        console.log('[Watcher] 启动监听循环 (预热模式)');
         this._scheduleNextCheck();
     }
 
@@ -808,14 +809,11 @@ class FileWatcher {
         try {
             const changes = [];
             
-            // 优先检查展开的目录
-            const pathsToCheck = this.expandedPaths.size > 0 
-                ? Array.from(this.expandedPaths)
-                : Array.from(this.watchedDirs.keys());
+            // 检查所有已注册的目录（包括根目录和所有子目录）
+            const pathsToCheck = Array.from(this.watchedDirs.keys());
             
             for (const path of pathsToCheck) {
-                const dirHandle = this.watchedDirs.get(path) || 
-                                  this.watchedDirs.get(''); // 尝试从根目录获取
+                const dirHandle = this.watchedDirs.get(path);
                 if (!dirHandle) continue;
                 
                 const dirChanges = await this._checkDirectory(dirHandle, path);
@@ -936,6 +934,14 @@ class FileWatcher {
      */
     _notifyChanges() {
         if (this.pendingChanges.length === 0) return;
+        
+        // 预热模式：首次扫描只建立缓存，不报告变化
+        if (this._isWarmingUp) {
+            console.log('[Watcher] 预热完成，缓存了', this.fileCache.size, '个条目');
+            this.pendingChanges = [];
+            this._isWarmingUp = false;
+            return;
+        }
         
         // 去重：同一路径只保留最后一个变化
         const changeMap = new Map();
@@ -1423,7 +1429,8 @@ function parseSearchReplace(text) {
      * 4. 避免了非行首的 ======= 误触发截断。
      */
     // 优化：REPLACE 标记前的 \n 改为 \n?，增强对 AI 偶尔漏掉最后一个换行的容错性
-    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
+    // 兼容 Gemini 输出的带行号格式：<<<<<<< SEARCH [file] 414-428
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
     
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -3850,9 +3857,17 @@ class UI {
             const dot = document.getElementById('ide-status-dot');
             if (dot) dot.style.display = 'block';
             
-            // 注册文件变化回调，自动刷新文件树
+            // 注册文件变化回调，智能刷新文件树
             fs.onFileChange((changes) => {
-                console.log('[UI] 检测到文件变化，自动刷新:', changes);
+                // 只有增删才需要刷新树结构，修改不需要
+                const structureChanges = changes.filter(c => c.type === 'add' || c.type === 'delete');
+                
+                if (structureChanges.length === 0) {
+                    console.log('[UI] 仅文件内容修改，跳过刷新');
+                    return;
+                }
+                
+                console.log('[UI] 检测到结构变化，刷新文件树:', structureChanges);
                 this.refreshTree();
             });
             

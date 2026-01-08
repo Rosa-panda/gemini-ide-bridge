@@ -85,7 +85,8 @@ export function parseSearchReplace(text) {
      * 4. 避免了非行首的 ======= 误触发截断。
      */
     // 优化：REPLACE 标记前的 \n 改为 \n?，增强对 AI 偶尔漏掉最后一个换行的容错性
-    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
+    // 兼容 Gemini 输出的带行号格式：<<<<<<< SEARCH [file] 414-428
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
     
     let match;
     while ((match = regex.exec(text)) !== null) {

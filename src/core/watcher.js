@@ -97,11 +97,12 @@ class FileWatcher {
         
         this.isRunning = true;
         this.isPaused = document.hidden;
+        this._isWarmingUp = true; // 预热模式：首次扫描只建立缓存，不报告变化
         
         // 监听页面可见性变化
         document.addEventListener('visibilitychange', this._onVisibilityChange);
         
-        console.log('[Watcher] 启动监听循环');
+        console.log('[Watcher] 启动监听循环 (预热模式)');
         this._scheduleNextCheck();
     }
 
@@ -191,14 +192,11 @@ class FileWatcher {
         try {
             const changes = [];
             
-            // 优先检查展开的目录
-            const pathsToCheck = this.expandedPaths.size > 0 
-                ? Array.from(this.expandedPaths)
-                : Array.from(this.watchedDirs.keys());
+            // 检查所有已注册的目录（包括根目录和所有子目录）
+            const pathsToCheck = Array.from(this.watchedDirs.keys());
             
             for (const path of pathsToCheck) {
-                const dirHandle = this.watchedDirs.get(path) || 
-                                  this.watchedDirs.get(''); // 尝试从根目录获取
+                const dirHandle = this.watchedDirs.get(path);
                 if (!dirHandle) continue;
                 
                 const dirChanges = await this._checkDirectory(dirHandle, path);
@@ -319,6 +317,14 @@ class FileWatcher {
      */
     _notifyChanges() {
         if (this.pendingChanges.length === 0) return;
+        
+        // 预热模式：首次扫描只建立缓存，不报告变化
+        if (this._isWarmingUp) {
+            console.log('[Watcher] 预热完成，缓存了', this.fileCache.size, '个条目');
+            this.pendingChanges = [];
+            this._isWarmingUp = false;
+            return;
+        }
         
         // 去重：同一路径只保留最后一个变化
         const changeMap = new Map();
