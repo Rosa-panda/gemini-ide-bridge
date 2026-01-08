@@ -62,7 +62,7 @@
     - 修改行：两侧都显示，字符级差异深色高亮
     - 相同行：灰色显示
   - **主题自适应**：亮色/暗色主题自动切换配色
-  - 参考知识库中的 Myers Diff、LCS、WordDiff 等算法实现
+  - 参考 Myers Diff、LCS、WordDiff 等算法实现
 - **补丁状态智能同步**
   - 修复 git 回退后插件仍显示"已应用"的问题
   - `checkIfApplied` 现在会同时检查 search 和 replace 内容
