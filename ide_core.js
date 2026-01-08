@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T03:42:52.903Z
+ * 自动构建于 2026-01-08T04:46:25.053Z
  */
 
 (function() {
@@ -743,7 +743,8 @@ class FileSystem {
         try {
             if (saveHistory) {
                 const oldContent = await this.readFile(filePath);
-                if (oldContent !== null) {
+                // 优化：只有内容发生变化且不为 null 时才保存历史
+                if (oldContent !== null && oldContent !== content) {
                     await history.saveVersion(filePath, oldContent);
                 }
             }
@@ -1528,8 +1529,11 @@ function getLogicSignature(code) {
                 .replace(RE_CR, '\n')
                 .split('\n')
                 .map((line, index) => {
-                    const trimmed = line.trim().replace(RE_ZERO_WIDTH, '');
-                    const indentMatch = line.match(RE_LEADING_SPACE);
+                    // 核心优化：只 trimRight，保留逻辑所需的左侧缩进意图
+                    // 但 content 比较时使用全 trim 后的内容
+                    const cleanLine = line.replace(RE_ZERO_WIDTH, '').replace(/\s+$/, '');
+                    const trimmed = cleanLine.trim();
+                    const indentMatch = cleanLine.match(RE_LEADING_SPACE);
                     const indentStr = indentMatch ? indentMatch[1].replace(RE_TAB, '    ') : '';
                     return { 
                         content: trimmed, 

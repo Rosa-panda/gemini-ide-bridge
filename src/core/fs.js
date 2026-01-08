@@ -126,7 +126,8 @@ class FileSystem {
         try {
             if (saveHistory) {
                 const oldContent = await this.readFile(filePath);
-                if (oldContent !== null) {
+                // 优化：只有内容发生变化且不为 null 时才保存历史
+                if (oldContent !== null && oldContent !== content) {
                     await history.saveVersion(filePath, oldContent);
                 }
             }
