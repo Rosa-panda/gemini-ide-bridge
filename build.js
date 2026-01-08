@@ -19,6 +19,7 @@ const files = [
     
     // core
     'src/core/history.js',
+    'src/core/watcher.js',  // 必须在 fs.js 之前，因为 fs.js 依赖它
     'src/core/fs.js',
     'src/core/parser.js',
     'src/core/state.js',

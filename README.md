@@ -52,6 +52,10 @@
 ## 更新日志
 
 ### V0.0.4 (当前)
+- **文件变化自动检测**
+  - 新增 `watcher.js` 文件监听模块
+  - 基于轮询 + 多重优化策略（页面可见性、requestIdleCallback、增量检测、防抖合并）
+  - 本地文件修改后自动刷新文件树，无需手动刷新
 - **输入框字数限制绕过(可能无效)**
   - Patch Quill 编辑器的 deleteText 方法
   - 拦截 Gemini 自动截断大段文本的行为
@@ -172,6 +176,7 @@ gemini-ide-bridge/
     │   ├── parser.js      # AI 输出解析（SEARCH/REPLACE、FILE:、DELETE）
     │   ├── state.js       # 补丁应用状态持久化（localStorage）
     │   ├── deps.js        # 依赖分析（JS/Python/C 的 import 解析）
+    │   ├── watcher.js     # 文件变化监听（轮询 + 智能优化）
     │   │
     │   └── patcher/       # 补丁应用引擎
     │       ├── index.js   # 补丁入口，tryReplace 主函数
@@ -219,6 +224,7 @@ gemini-ide-bridge/
 | `parser.js` | 解析 AI 输出的 SEARCH/REPLACE、FILE:、DELETE 指令 |
 | `state.js` | 记录已应用的补丁，防止重复应用 |
 | `deps.js` | 分析文件依赖关系，支持 JS/TS/Python/C++ |
+| `watcher.js` | 文件变化监听（轮询 + 页面可见性 + requestIdleCallback + 防抖） |
 
 ### core/patcher/ - 补丁引擎
 | 文件 | 功能 |

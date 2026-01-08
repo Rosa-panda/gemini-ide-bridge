@@ -3,6 +3,7 @@
  */
 
 import { history } from './history.js';
+import { watcher } from './watcher.js';
 
 const IGNORE_DIRS = new Set([
     'node_modules', '.git', 'dist', '.DS_Store', '.idea', 
@@ -23,6 +24,11 @@ class FileSystem {
             const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
             this.rootHandle = dirHandle;
             this.projectName = dirHandle.name;
+            
+            // 启动文件监听
+            watcher.watch(dirHandle, '');
+            watcher.start();
+            
             return await this.refreshProject();
         } catch (err) {
             return { success: false, error: err.message };
@@ -35,6 +41,8 @@ class FileSystem {
         try {
             this.fileHandles.clear();
             this.dirHandles.clear();
+            // 清空 watcher 缓存，确保重新检测
+            watcher.clearCache();
             // 递归扫描所有文件
             const tree = await this._scanDir(this.rootHandle, '', true);
             return { success: true, rootName: this.rootHandle.name, tree };
@@ -289,6 +297,52 @@ class FileSystem {
             return this.generateStructure(node, '', isLast);
         }).join('');
     }
+
+    /**
+     * 标记目录展开状态（供 watcher 优化检测）
+     * @param {string} path 
+     */
+    markDirExpanded(path) {
+        watcher.markExpanded(path);
+        // 同时注册该目录的 handle 到 watcher
+        const dirHandle = this.dirHandles.get(path);
+        if (dirHandle) {
+            watcher.watch(dirHandle, path);
+        }
+    }
+
+    /**
+     * 标记目录折叠状态
+     * @param {string} path 
+     */
+    markDirCollapsed(path) {
+        watcher.markCollapsed(path);
+    }
+
+    /**
+     * 注册文件变化回调
+     * @param {Function} callback - (changes) => void
+     * @returns {Function} 取消注册的函数
+     */
+    onFileChange(callback) {
+        return watcher.onChange(callback);
+    }
+
+    /**
+     * 获取 watcher 状态
+     */
+    getWatcherStatus() {
+        return watcher.getStatus();
+    }
+
+    /**
+     * 停止文件监听（关闭项目时调用）
+     */
+    stopWatching() {
+        watcher.stop();
+        watcher.clearCache();
+    }
 }
 
 export const fs = new FileSystem();
+export { watcher };

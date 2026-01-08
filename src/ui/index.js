@@ -93,6 +93,12 @@ class UI {
             const dot = document.getElementById('ide-status-dot');
             if (dot) dot.style.display = 'block';
             
+            // 注册文件变化回调，自动刷新文件树
+            fs.onFileChange((changes) => {
+                console.log('[UI] 检测到文件变化，自动刷新:', changes);
+                this.refreshTree();
+            });
+            
             gemini.startWatching();
         } else {
             if (connectBtn) connectBtn.textContent = '连接文件夹';
