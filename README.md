@@ -177,7 +177,8 @@ gemini-ide-bridge/
     │   └── history.js     # 历史版本对话框（版本列表、回退）
     │
     └── gemini/            # Gemini 交互模块
-        ├── index.js       # Gemini 类入口，输入框操作
+        ├── index.js       # Gemini 类入口，组装与导出
+        ├── input.js       # 输入框操作（Quill Patch、文本注入）
         ├── watcher.js     # 代码块监听器（MutationObserver）
         ├── actions.js     # 代码块操作栏注入（应用、撤销按钮）
         ├── diff.js        # 差异分析工具（相似度、候选搜索）
@@ -231,7 +232,8 @@ gemini-ide-bridge/
 ### gemini/ - Gemini 交互
 | 文件 | 功能 |
 |------|------|
-| `index.js` | Gemini 对象，输入框操作、文件发送 |
+| `index.js` | Gemini 对象入口，组装与导出 |
+| `input.js` | 输入框操作（Quill Patch、文本注入、文件发送） |
 | `watcher.js` | MutationObserver 监听 AI 输出的代码块 |
 | `actions.js` | 为代码块注入操作栏（应用、撤销、删除按钮） |
 | `diff.js` | 差异分析工具（相似度计算、候选搜索、逐行对比） |

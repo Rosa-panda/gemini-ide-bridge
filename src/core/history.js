@@ -120,9 +120,14 @@ class FileHistory {
                         const records = getRequest.result || [];
                         records.sort((a, b) => a.timestamp - b.timestamp);
                         const toDelete = records.slice(0, records.length - MAX_HISTORY_PER_FILE);
+                        
                         const deleteTx = db.transaction(STORE_NAME, 'readwrite');
                         const deleteStore = deleteTx.objectStore(STORE_NAME);
                         toDelete.forEach(r => deleteStore.delete(r.id));
+                        
+                        deleteTx.onerror = (e) => {
+                            console.warn('[History] 事务清理失败:', e.target.error);
+                        };
                     };
                 }
             };

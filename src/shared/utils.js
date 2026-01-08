@@ -9,7 +9,9 @@ export function getLanguage(filename) {
         py: 'python', java: 'java', cpp: 'cpp', c: 'c', go: 'go',
         rs: 'rust', rb: 'ruby', php: 'php', html: 'html', css: 'css',
         json: 'json', yaml: 'yaml', yml: 'yaml', md: 'markdown',
-        sql: 'sql', sh: 'bash', vue: 'vue', svelte: 'svelte'
+        sql: 'sql', sh: 'bash', vue: 'vue', svelte: 'svelte',
+        xml: 'xml', env: 'bash', toml: 'toml', ini: 'ini',
+        dockerfile: 'dockerfile', docker: 'dockerfile'
     };
     return map[ext] || 'text';
 }
@@ -26,6 +28,17 @@ export function formatTokens(count) {
         return (count / 1000).toFixed(1) + 'k';
     }
     return count.toString();
+}
+
+/**
+* 防抖函数 - 限制高频事件触发
+*/
+export function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
 }
 
 let activeToasts = [];

@@ -3,10 +3,11 @@
  */
 
 import { createIcon } from './icons.js';
+import { debounce } from '../shared/utils.js';
 
 /**
- * 创建触发按钮
- */
+     * 创建触发按钮
+     */
 export function createTrigger(currentTree) {
     const trigger = document.createElement('div');
     trigger.id = 'ide-trigger';
@@ -92,7 +93,8 @@ export function createSidebar(onSearch) {
         outline: 'none', boxSizing: 'border-box'
     });
 
-    searchInput.oninput = (e) => onSearch(e.target.value.toLowerCase());
+    const debouncedSearch = debounce((val) => onSearch(val), 300);
+    searchInput.oninput = (e) => debouncedSearch(e.target.value.toLowerCase());
     searchBar.appendChild(searchInput);
     
     const title = document.createElement('div');

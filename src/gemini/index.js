@@ -2,74 +2,28 @@
  * Gemini 交互模块入口
  */
 
-import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
 import { processCodeBlock, createWatcher } from './watcher.js';
 import { injectActionBar } from './actions.js';
+import { patchQuillDeleteText, insertToInput, sendFile, sendStructure } from './input.js';
 
 export const gemini = {
     observer: null,
     processedBlocks: new WeakSet(),
+    _quillPatched: false,
 
-    insertToInput(text) {
-        const selectors = [
-            'rich-textarea .ql-editor',
-            'rich-textarea [contenteditable="true"]',
-            '.ql-editor[contenteditable="true"]',
-            'div[contenteditable="true"]'
-        ];
-        
-        let inputEl = null;
-        for (const sel of selectors) {
-            inputEl = document.querySelector(sel);
-            if (inputEl) break;
-        }
-        
-        if (!inputEl) {
-            showToast('找不到输入框', 'error');
-            return false;
-        }
-        
-        inputEl.focus();
-        
-        const existing = inputEl.textContent || '';
-        const newContent = existing ? existing + '\n\n' + text : text;
-        
-        inputEl.textContent = newContent;
-        
-        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-        
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.selectNodeContents(inputEl);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        
-        return { success: true, tokens: estimateTokens(text) };
-    },
-
-    sendFile(filePath, content) {
-        const lang = getLanguage(filePath);
-        const text = `📄 **文件最新状态** - \`${filePath}\`\n\n以下是该文件当前的完整内容：\n\n\`\`\`${lang}\n${content}\n\`\`\``;
-        const result = this.insertToInput(text);
-        if (result.success) {
-            showToast(`已发送: ${filePath.split('/').pop()} (~${formatTokens(result.tokens)} tokens)`);
-        }
-        return result.success;
-    },
-
-    sendStructure(name, structure) {
-        const text = `目录 \`${name}\` 结构:\n\n\`\`\`\n${structure}\`\`\``;
-        const result = this.insertToInput(text);
-        if (result.success) {
-            showToast(`已发送目录 (~${formatTokens(result.tokens)} tokens)`);
-        }
-        return result.success;
-    },
+    // 代理到 input.js 的方法
+    insertToInput,
+    sendFile,
+    sendStructure,
 
     startWatching() {
         if (this.observer) return;
+        
+        // 启动 Quill patch
+        if (!this._quillPatched) {
+            this._quillPatched = true;
+            patchQuillDeleteText();
+        }
         
         this.observer = createWatcher(() => {
             this._processCodeBlocks();

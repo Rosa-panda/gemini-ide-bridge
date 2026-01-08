@@ -84,7 +84,8 @@ export function parseSearchReplace(text) {
      * 3. ^={6,10}\s*$：确保分隔符必须在行首，且允许行末空格。
      * 4. 避免了非行首的 ======= 误触发截断。
      */
-    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n^>{6,10} REPLACE\s*$/gm;
+    // 优化：REPLACE 标记前的 \n 改为 \n?，增强对 AI 偶尔漏掉最后一个换行的容错性
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
     
     let match;
     while ((match = regex.exec(text)) !== null) {

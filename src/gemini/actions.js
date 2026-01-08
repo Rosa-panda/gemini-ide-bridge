@@ -224,8 +224,8 @@ export function injectActionBar(container, text, filePath, insertToInput) {
     if (deletes.length > 0) {
         if (deletes.length > 1) {
             const batchBtn = createActionButton(`🗑️ 批量删除 (${deletes.length}个文件)`, async () => {
-                const confirmMsg = `确定要删除这 ${deletes.length} 个文件吗？\n\n${deletes.map(d => '• ' + d.file).join('\n')}`;
-                if (!confirm(confirmMsg)) return;
+                const fileList = deletes.map(d => `• ${d.file}`).join('\n');
+                if (!confirm(`确定要批量删除以下 ${deletes.length} 个文件/目录吗？\n\n${fileList}`)) return;
 
                 batchBtn.textContent = '正在处理...';
                 let successCount = 0;
