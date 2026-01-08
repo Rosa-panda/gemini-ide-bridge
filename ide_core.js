@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T08:06:11.213Z
+ * 自动构建于 2026-01-08T12:11:53.429Z
  */
 
 (function() {
@@ -5257,7 +5257,6 @@ function injectActionBar(container, text, filePath, insertToInput) {
             
             for (const { patch, btn, idx } of items) {
                 // 使用 checkIfApplied 统一检查（会自动清理脏数据）
-                const { checkIfApplied } = await import('../core/state.js');
                 const status = await checkIfApplied(patch.file, patch.search, patch.replace, fs);
                 
                 if (status.applied && status.confident) {

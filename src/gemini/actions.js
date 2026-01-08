@@ -5,7 +5,7 @@
 import { fs } from '../core/fs.js';
 import { parseDelete, parseSearchReplace, parseMultipleFiles, parseRead } from '../core/parser.js';
 import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
-import { markAsApplied, unmarkAsApplied, getPatchKey } from '../core/state.js';
+import { markAsApplied, unmarkAsApplied, getPatchKey, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
 import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
 import { buildMismatchContext, buildSyntaxErrorContext, buildDuplicateContext, buildFileNotFoundContext, buildReadErrorContext } from './feedback.js';
@@ -353,7 +353,6 @@ export function injectActionBar(container, text, filePath, insertToInput) {
             
             for (const { patch, btn, idx } of items) {
                 // 使用 checkIfApplied 统一检查（会自动清理脏数据）
-                const { checkIfApplied } = await import('../core/state.js');
                 const status = await checkIfApplied(patch.file, patch.search, patch.replace, fs);
                 
                 if (status.applied && status.confident) {
