@@ -68,13 +68,27 @@ function checkMatchAt(contentSigs, searchSigs, startIdx, isStrictIndent) {
         const fileBaseIndent = contentSigs[startIdx].indent;
         const searchBaseIndent = searchSigs[0].indent;
         
+        // 改进：使用比例/深度校验，处理缩进单位不一致（如 2 vs 4 空格）的情况
+        let indentRatio = null; // 修复：使用局部变量而不是 this
+        
         for (let j = 1; j < searchSigs.length; j++) {
-            const fileRelative = contentSigs[startIdx + j].indent - fileBaseIndent;
-            const searchRelative = searchSigs[j].indent - searchBaseIndent;
+            const fileRel = contentSigs[startIdx + j].indent - fileBaseIndent;
+            const searchRel = searchSigs[j].indent - searchBaseIndent;
+
+            // 如果两者都为 0，说明缩进未变，匹配成功
+            if (fileRel === 0 && searchRel === 0) continue;
+            // 如果其中一个变了一个没变，或者方向相反，匹配失败
+            if (fileRel * searchRel <= 0) return false;
             
-            // 注意：这里允许缩进单位不一致（如 2 空格 vs 4 空格），只要变化方向和比例一致
-            // 但为简单起见，我们先校验绝对相对值。如果需要更强兼容性，可以改用比例校验。
-            if (fileRelative !== searchRelative) return false;
+            // 只要缩进的变化方向一致即可。更严谨的做法是校验比例是否恒定。
+            // 这里采用简单的比例一致性校验
+            if (indentRatio === null) {
+                // 记录第一行的缩进比例作为基准
+                indentRatio = fileRel / searchRel;
+            } else if (Math.abs((fileRel / searchRel) - indentRatio) > 0.01) {
+                // 使用浮点数容差比较，避免精度问题
+                return false;
+            }
         }
     }
     

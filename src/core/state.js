@@ -60,15 +60,33 @@ export async function checkIfApplied(file, search, replace, fsModule) {
                 const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
                 const normalizedContent = normalize(content);
                 const normalizedSearch = normalize(search);
+                const normalizedReplace = normalize(replace);
                 
                 const searchExists = normalizedContent.includes(normalizedSearch);
+                const replaceExists = normalizedContent.includes(normalizedReplace);
                 
+                // 如果 search 存在，说明未应用
                 if (searchExists) {
+                    // 如果 localStorage 有记录但文件未应用，清除脏数据
+                    if (hasRecord) {
+                        unmarkAsApplied(file, search);
+                    }
                     return { applied: false, confident: true };
                 }
                 
-                if (hasRecord) {
+                // 如果 replace 存在，说明已应用
+                if (replaceExists) {
+                    // 确保 localStorage 有记录
+                    if (!hasRecord) {
+                        markAsApplied(file, search);
+                    }
                     return { applied: true, confident: true };
+                }
+                
+                // 如果 search 和 replace 都不存在，但 localStorage 有记录
+                // 说明文件被外部修改（如 git 回退），清除脏数据
+                if (hasRecord) {
+                    unmarkAsApplied(file, search);
                 }
             }
         }

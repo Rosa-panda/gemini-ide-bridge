@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T07:02:20.304Z
+ * 自动构建于 2026-01-08T08:06:11.213Z
  */
 
 (function() {
@@ -1562,15 +1562,33 @@ async function checkIfApplied(file, search, replace, fsModule) {
                 const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
                 const normalizedContent = normalize(content);
                 const normalizedSearch = normalize(search);
+                const normalizedReplace = normalize(replace);
                 
                 const searchExists = normalizedContent.includes(normalizedSearch);
+                const replaceExists = normalizedContent.includes(normalizedReplace);
                 
+                // 如果 search 存在，说明未应用
                 if (searchExists) {
+                    // 如果 localStorage 有记录但文件未应用，清除脏数据
+                    if (hasRecord) {
+                        unmarkAsApplied(file, search);
+                    }
                     return { applied: false, confident: true };
                 }
                 
-                if (hasRecord) {
+                // 如果 replace 存在，说明已应用
+                if (replaceExists) {
+                    // 确保 localStorage 有记录
+                    if (!hasRecord) {
+                        markAsApplied(file, search);
+                    }
                     return { applied: true, confident: true };
+                }
+                
+                // 如果 search 和 replace 都不存在，但 localStorage 有记录
+                // 说明文件被外部修改（如 git 回退），清除脏数据
+                if (hasRecord) {
+                    unmarkAsApplied(file, search);
                 }
             }
         }
@@ -2010,13 +2028,27 @@ function checkMatchAt(contentSigs, searchSigs, startIdx, isStrictIndent) {
         const fileBaseIndent = contentSigs[startIdx].indent;
         const searchBaseIndent = searchSigs[0].indent;
         
+        // 改进：使用比例/深度校验，处理缩进单位不一致（如 2 vs 4 空格）的情况
+        let indentRatio = null; // 修复：使用局部变量而不是 this
+        
         for (let j = 1; j < searchSigs.length; j++) {
-            const fileRelative = contentSigs[startIdx + j].indent - fileBaseIndent;
-            const searchRelative = searchSigs[j].indent - searchBaseIndent;
+            const fileRel = contentSigs[startIdx + j].indent - fileBaseIndent;
+            const searchRel = searchSigs[j].indent - searchBaseIndent;
+
+            // 如果两者都为 0，说明缩进未变，匹配成功
+            if (fileRel === 0 && searchRel === 0) continue;
+            // 如果其中一个变了一个没变，或者方向相反，匹配失败
+            if (fileRel * searchRel <= 0) return false;
             
-            // 注意：这里允许缩进单位不一致（如 2 空格 vs 4 空格），只要变化方向和比例一致
-            // 但为简单起见，我们先校验绝对相对值。如果需要更强兼容性，可以改用比例校验。
-            if (fileRelative !== searchRelative) return false;
+            // 只要缩进的变化方向一致即可。更严谨的做法是校验比例是否恒定。
+            // 这里采用简单的比例一致性校验
+            if (indentRatio === null) {
+                // 记录第一行的缩进比例作为基准
+                indentRatio = fileRel / searchRel;
+            } else if (Math.abs((fileRel / searchRel) - indentRatio) > 0.01) {
+                // 使用浮点数容差比较，避免精度问题
+                return false;
+            }
         }
     }
     
@@ -2632,6 +2664,56 @@ function generateNumberedLines(code, startLine = 1) {
  * 预览对话框 - 变更确认（Side-by-Side Diff）
  */
 
+
+
+/**
+ * 获取主题相关的 Diff 配色方案
+ * @returns {Object} 包含各种状态的颜色配置
+ */
+function getDiffColors() {
+    const theme = detectTheme();
+    
+    if (theme === 'light') {
+        return {
+            // 删除行
+            deleteBg: '#ffd7d5',
+            deleteText: '#82071e',
+            deleteCharBg: '#ff8182',
+            deleteCharText: '#ffffff',
+            // 新增行
+            insertBg: '#d1f4d1',
+            insertText: '#055d20',
+            insertCharBg: '#4fb04f',
+            insertCharText: '#ffffff',
+            // 修改行
+            modifyBg: '#fff4ce',
+            // 空白行
+            emptyBg: '#f6f8fa',
+            // 相同行透明度
+            equalOpacity: '0.5'
+        };
+    } else {
+        return {
+            // 删除行
+            deleteBg: '#4b1818',
+            deleteText: '#ffa8a8',
+            deleteCharBg: '#c44444',
+            deleteCharText: '#ffffff',
+            // 新增行
+            insertBg: '#1a4d1a',
+            insertText: '#a8ffa8',
+            insertCharBg: '#44c444',
+            insertCharText: '#ffffff',
+            // 修改行
+            modifyBg: '#3d2a1a',
+            // 空白行
+            emptyBg: 'rgba(0, 0, 0, 0.1)',
+            // 相同行透明度
+            equalOpacity: '0.6'
+        };
+    }
+}
+
 /**
  * Myers Diff 算法 - 计算两个文本的行级差异
  * @param {string[]} oldLines - 原始文本的行数组
@@ -2700,10 +2782,12 @@ function computeLineDiff(oldLines, newLines) {
  * @returns {Array} 差异数组，每项包含 {type: 'equal'|'delete'|'insert', value}
  */
 function computeCharDiff(oldText, newText) {
-    const m = oldText.length;
-    const n = newText.length;
+    // 核心修复：使用 Array.from 处理 Unicode 代理对，防止中文/Emoji 乱码
+    const oldChars = Array.from(oldText);
+    const newChars = Array.from(newText);
+    const m = oldChars.length;
+    const n = newChars.length;
     
-    // 动态规划表
     const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
     
     for (let i = 0; i <= m; i++) dp[i][0] = i;
@@ -2711,7 +2795,7 @@ function computeCharDiff(oldText, newText) {
     
     for (let i = 1; i <= m; i++) {
         for (let j = 1; j <= n; j++) {
-            if (oldText[i - 1] === newText[j - 1]) {
+            if (oldChars[i - 1] === newChars[j - 1]) {
                 dp[i][j] = dp[i - 1][j - 1];
             } else {
                 dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
@@ -2719,20 +2803,19 @@ function computeCharDiff(oldText, newText) {
         }
     }
     
-    // 回溯
     const diffs = [];
     let i = m, j = n;
     
     while (i > 0 || j > 0) {
-        if (i > 0 && j > 0 && oldText[i - 1] === newText[j - 1]) {
-            diffs.unshift({ type: 'equal', value: oldText[i - 1] });
+        if (i > 0 && j > 0 && oldChars[i - 1] === newChars[j - 1]) {
+            diffs.unshift({ type: 'equal', value: oldChars[i - 1] });
             i--;
             j--;
         } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
-            diffs.unshift({ type: 'delete', value: oldText[i - 1] });
+            diffs.unshift({ type: 'delete', value: oldChars[i - 1] });
             i--;
         } else {
-            diffs.unshift({ type: 'insert', value: newText[j - 1] });
+            diffs.unshift({ type: 'insert', value: newChars[j - 1] });
             j--;
         }
     }
@@ -2741,26 +2824,39 @@ function computeCharDiff(oldText, newText) {
 }
 
 /**
- * 渲染带字符级高亮的行
- * @param {Array} charDiffs - 字符级差异数组
- * @param {string} type - 'old' 或 'new'
- * @returns {HTMLElement} 渲染后的行元素
- */
-function renderHighlightedLine(charDiffs, type) {
+* 渲染带字符级高亮的行
+* @param {Array} charDiffs - 字符级差异数组
+* @param {string} type - 'old' 或 'new'
+* @param {Object} colors - 主题配色方案
+* @returns {HTMLElement} 渲染后的行元素
+*/
+function renderHighlightedLine(charDiffs, type, colors) {
     const span = document.createElement('span');
     
     charDiffs.forEach(diff => {
+        // 核心修复：左侧面板(old)只渲染 equal 和 delete；右侧面板(new)只渲染 equal 和 insert
+        if (type === 'old' && diff.type === 'insert') return;
+        if (type === 'new' && diff.type === 'delete') return;
+
         const part = document.createElement('span');
         part.textContent = diff.value;
         
         if (type === 'old' && diff.type === 'delete') {
-            // 删除的字符用深红色背景
-            part.style.backgroundColor = '#8b0000';
-            part.style.color = '#fff';
+            part.style.backgroundColor = colors.deleteCharBg;
+            part.style.color = colors.deleteCharText;
+            part.style.fontWeight = '700';
+            part.style.padding = '0 1px';
+            part.style.borderRadius = '2px';
         } else if (type === 'new' && diff.type === 'insert') {
-            // 插入的字符用深绿色背景
-            part.style.backgroundColor = '#006400';
-            part.style.color = '#fff';
+            part.style.backgroundColor = colors.insertCharBg;
+            part.style.color = colors.insertCharText;
+            part.style.fontWeight = '700';
+            part.style.padding = '0 1px';
+            part.style.borderRadius = '2px';
+        } else {
+            part.style.color = type === 'old' ? colors.deleteText : colors.insertText;
+            // 降低未变化字符的亮度，突出变化点
+            part.style.opacity = colors.equalOpacity;
         }
         
         span.appendChild(part);
@@ -2869,6 +2965,9 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
         const oldLines = oldText.split('\n');
         const newLines = newText.split('\n');
         const lineDiffs = computeLineDiff(oldLines, newLines);
+        
+        // 获取主题配色
+        const colors = getDiffColors();
 
         // 创建左右两个面板
         const createSidePanel = (side) => {
@@ -2939,42 +3038,44 @@ function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = 
             const rightCodeDiv = document.createElement('div');
 
             if (diff.type === 'equal') {
-                // 相同行 - 灰色显示
+                // 相同行 - 正常显示
                 leftLineDiv.textContent = String(leftLineNum++);
                 rightLineDiv.textContent = String(rightLineNum++);
                 leftCodeDiv.textContent = diff.oldLine;
                 rightCodeDiv.textContent = diff.newLine;
-                leftCodeDiv.style.color = 'var(--ide-text-secondary)';
-                rightCodeDiv.style.color = 'var(--ide-text-secondary)';
+                leftCodeDiv.style.color = 'var(--ide-text)';
+                rightCodeDiv.style.color = 'var(--ide-text)';
+                leftCodeDiv.style.opacity = colors.equalOpacity;
+                rightCodeDiv.style.opacity = colors.equalOpacity;
             } else if (diff.type === 'delete') {
                 // 删除行 - 左侧红色背景，右侧空白
                 leftLineDiv.textContent = String(leftLineNum++);
                 rightLineDiv.textContent = '';
                 leftCodeDiv.textContent = diff.oldLine;
-                leftCodeDiv.style.backgroundColor = '#3d1a1a';
-                leftCodeDiv.style.color = '#ff6b6b';
+                leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                leftCodeDiv.style.color = colors.deleteText;
                 rightCodeDiv.textContent = '';
-                rightCodeDiv.style.backgroundColor = '#1a1a1a';
+                rightCodeDiv.style.backgroundColor = colors.emptyBg;
             } else if (diff.type === 'insert') {
                 // 插入行 - 右侧绿色背景，左侧空白
                 leftLineDiv.textContent = '';
                 rightLineDiv.textContent = String(rightLineNum++);
                 leftCodeDiv.textContent = '';
-                leftCodeDiv.style.backgroundColor = '#1a1a1a';
+                leftCodeDiv.style.backgroundColor = colors.emptyBg;
                 rightCodeDiv.textContent = diff.newLine;
-                rightCodeDiv.style.backgroundColor = '#1a3d1a';
-                rightCodeDiv.style.color = '#6bff6b';
+                rightCodeDiv.style.backgroundColor = colors.insertBg;
+                rightCodeDiv.style.color = colors.insertText;
             } else if (diff.type === 'modify') {
                 // 修改行 - 两侧都显示，字符级高亮
                 leftLineDiv.textContent = String(leftLineNum++);
                 rightLineDiv.textContent = String(rightLineNum++);
                 
                 const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-                leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old'));
-                rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new'));
+                leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
+                rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors));
                 
-                leftCodeDiv.style.backgroundColor = '#3d2a1a';
-                rightCodeDiv.style.backgroundColor = '#2a3d1a';
+                leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                rightCodeDiv.style.backgroundColor = colors.insertBg;
             }
 
             leftPanel.lineNumbers.appendChild(leftLineDiv);
@@ -5154,25 +5255,15 @@ function injectActionBar(container, text, filePath, insertToInput) {
         filePatches.forEach(async (items, filePath) => {
             if (!fs.hasFile(filePath)) return;
             
-            const content = await fs.readFile(filePath);
-            if (content === null) return;
-            
-            const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
-            const normalizedContent = normalize(content);
-            
             for (const { patch, btn, idx } of items) {
-                const normalizedSearch = normalize(patch.search);
-                const searchExists = normalizedContent.includes(normalizedSearch);
+                // 使用 checkIfApplied 统一检查（会自动清理脏数据）
+                const { checkIfApplied } = await import('../core/state.js');
+                const status = await checkIfApplied(patch.file, patch.search, patch.replace, fs);
                 
-                if (!searchExists) {
-                    // search 不存在，可能已应用
-                    const data = JSON.parse(localStorage.getItem('ide-applied-patches') || '{}');
-                    const key = getPatchKey(patch.file, patch.search);
-                    if (data[key]) {
-                        btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
-                        btn.style.background = '#059669';
-                        addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
-                    }
+                if (status.applied && status.confident) {
+                    btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
+                    btn.style.background = '#059669';
+                    addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
                 }
             }
         });

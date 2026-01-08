@@ -351,25 +351,15 @@ export function injectActionBar(container, text, filePath, insertToInput) {
         filePatches.forEach(async (items, filePath) => {
             if (!fs.hasFile(filePath)) return;
             
-            const content = await fs.readFile(filePath);
-            if (content === null) return;
-            
-            const normalize = (s) => s.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
-            const normalizedContent = normalize(content);
-            
             for (const { patch, btn, idx } of items) {
-                const normalizedSearch = normalize(patch.search);
-                const searchExists = normalizedContent.includes(normalizedSearch);
+                // 使用 checkIfApplied 统一检查（会自动清理脏数据）
+                const { checkIfApplied } = await import('../core/state.js');
+                const status = await checkIfApplied(patch.file, patch.search, patch.replace, fs);
                 
-                if (!searchExists) {
-                    // search 不存在，可能已应用
-                    const data = JSON.parse(localStorage.getItem('ide-applied-patches') || '{}');
-                    const key = getPatchKey(patch.file, patch.search);
-                    if (data[key]) {
-                        btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
-                        btn.style.background = '#059669';
-                        addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
-                    }
+                if (status.applied && status.confident) {
+                    btn.textContent = `✅ 已应用 #${idx + 1} → ${patch.file}`;
+                    btn.style.background = '#059669';
+                    addUndoButtonForPatch(bar, patch, insertToInput, btn, idx);
                 }
             }
         });
