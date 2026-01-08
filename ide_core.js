@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T03:18:10.521Z
+ * 自动构建于 2026-01-08T03:42:52.903Z
  */
 
 (function() {
@@ -763,7 +763,8 @@ class FileSystem {
         if (!lastVersion) {
             return { success: false, error: '没有可回退的版本' };
         }
-        const success = await this.writeFile(filePath, lastVersion.content, false);
+        // 关键修改：saveHistory 改为 true，保留"撤销前"的状态，允许"撤销撤销"
+        const success = await this.writeFile(filePath, lastVersion.content, true);
         return { success, content: lastVersion.content, timestamp: lastVersion.timestamp };
     }
 
@@ -773,7 +774,8 @@ class FileSystem {
         if (!target) {
             return { success: false, error: '版本不存在' };
         }
-        const success = await this.writeFile(filePath, target.content, false);
+        // 关键修改：saveHistory 改为 true
+        const success = await this.writeFile(filePath, target.content, true);
         return { success, content: target.content };
     }
 
