@@ -54,7 +54,8 @@ class UI {
             this._renderTree(result.tree);
             const trigger = document.getElementById('ide-trigger');
             if (trigger && result.rootName) {
-                trigger.textContent = '✅ ' + result.rootName;
+                trigger.textContent = '⚡';  // 只显示图标，不显示文件夹名
+                trigger.style.background = '#059669';
             }
         }
     }
@@ -82,7 +83,7 @@ class UI {
             
             const trigger = document.getElementById('ide-trigger');
             if (trigger) {
-                trigger.textContent = '✅ ' + result.rootName;
+                trigger.textContent = '⚡';  // 只显示图标，不显示文件夹名
                 trigger.style.background = '#059669';
                 trigger.style.borderColor = '#34d399';
             }

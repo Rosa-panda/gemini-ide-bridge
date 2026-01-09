@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.4)
- * 自动构建于 2026-01-08T12:11:53.429Z
+ * 自动构建于 2026-01-09T14:24:26.524Z
  */
 
 (function() {
@@ -3835,7 +3835,7 @@ function filterTree(term, currentTree, folderStates, renderCallback) {
 
 
 /**
-     * 创建触发按钮
+     * 创建触发按钮（支持拖拽）
      */
 function createTrigger(currentTree) {
     const trigger = document.createElement('div');
@@ -3847,28 +3847,88 @@ function createTrigger(currentTree) {
         background: 'var(--ide-bg)', color: 'var(--ide-text)',
         border: '1px solid var(--ide-border)', borderRadius: '50%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', boxShadow: 'var(--ide-shadow)',
+        cursor: 'grab', boxShadow: 'var(--ide-shadow)',
         fontSize: '18px', transition: 'all 0.2s', userSelect: 'none'
     });
     
     trigger.classList.add('ide-glass');
 
-    trigger.onmouseover = () => {
-        trigger.style.width = 'auto';
-        trigger.style.borderRadius = '20px';
-        trigger.style.padding = '0 12px';
-        trigger.textContent = '⚡️ IDE Bridge';
-    };
-    trigger.onmouseout = () => {
-        if (!currentTree) {
-            trigger.style.width = '40px';
-            trigger.style.padding = '0';
-            trigger.style.borderRadius = '50%';
-            trigger.textContent = '⚡️';
-        }
+    // 拖拽状态
+    let isDragging = false;
+    let hasMoved = false;
+    let startX, startY, startRight, startBottom;
+
+    trigger.onmousedown = (e) => {
+        if (e.button !== 0) return; // 只响应左键
+        isDragging = true;
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        startRight = parseInt(trigger.style.right) || 20;
+        startBottom = parseInt(trigger.style.bottom) || 20;
+        trigger.style.cursor = 'grabbing';
+        trigger.style.transition = 'none'; // 拖拽时禁用过渡动画
+        e.preventDefault();
     };
 
-    trigger.onclick = () => {
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        
+        const deltaX = startX - e.clientX;
+        const deltaY = startY - e.clientY;
+        
+        // 移动超过 5px 才算拖拽，避免误触
+        if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+            hasMoved = true;
+        }
+        
+        // 计算新位置，限制在视口内
+        let newRight = Math.max(10, Math.min(window.innerWidth - 60, startRight + deltaX));
+        let newBottom = Math.max(10, Math.min(window.innerHeight - 60, startBottom + deltaY));
+        
+        trigger.style.right = newRight + 'px';
+        trigger.style.bottom = newBottom + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            trigger.style.cursor = 'grab';
+            trigger.style.transition = 'all 0.2s';
+            
+            // 保存位置到 localStorage
+            localStorage.setItem('ide-trigger-pos', JSON.stringify({
+                right: parseInt(trigger.style.right),
+                bottom: parseInt(trigger.style.bottom)
+            }));
+        }
+    });
+
+    // 恢复保存的位置
+    try {
+        const savedPos = JSON.parse(localStorage.getItem('ide-trigger-pos'));
+        if (savedPos) {
+            trigger.style.right = savedPos.right + 'px';
+            trigger.style.bottom = savedPos.bottom + 'px';
+        }
+    } catch (e) {}
+
+    // hover 效果：简单的缩放，不展开文字
+    trigger.onmouseover = () => {
+        if (isDragging) return;
+        trigger.style.transform = 'scale(1.1)';
+    };
+    trigger.onmouseout = () => {
+        if (isDragging) return;
+        trigger.style.transform = 'scale(1)';
+    };
+
+    trigger.onclick = (e) => {
+        // 如果刚拖拽过，不触发点击
+        if (hasMoved) {
+            hasMoved = false;
+            return;
+        }
         const sidebar = document.getElementById('ide-sidebar');
         const isHidden = sidebar.style.transform === 'translateX(100%)';
         sidebar.style.transform = isHidden ? 'translateX(0)' : 'translateX(100%)';
@@ -4115,7 +4175,8 @@ class UI {
             this._renderTree(result.tree);
             const trigger = document.getElementById('ide-trigger');
             if (trigger && result.rootName) {
-                trigger.textContent = '✅ ' + result.rootName;
+                trigger.textContent = '⚡';  // 只显示图标，不显示文件夹名
+                trigger.style.background = '#059669';
             }
         }
     }
@@ -4143,7 +4204,7 @@ class UI {
             
             const trigger = document.getElementById('ide-trigger');
             if (trigger) {
-                trigger.textContent = '✅ ' + result.rootName;
+                trigger.textContent = '⚡';  // 只显示图标，不显示文件夹名
                 trigger.style.background = '#059669';
                 trigger.style.borderColor = '#34d399';
             }
