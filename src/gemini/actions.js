@@ -452,6 +452,8 @@ export function injectActionBar(container, text, filePath, insertToInput) {
                     showToast('文件不存在: ' + read.file, 'error');
                     btn.textContent = '❌ 文件不存在';
                     btn.style.background = '#dc2626';
+                    // 自动反馈给 AI
+                    insertToInput(buildFileNotFoundContext(read.file, fs.getAllFilePaths()));
                     return;
                 }
                 

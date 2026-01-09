@@ -16,12 +16,19 @@ function getFileType(filePath) {
 
 function parseJsDeps(content) {
     const deps = [];
+    // 匹配 import ... from "..." 或 import "..."
     const importRegex = /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
+    // 🆕 新增：支持 import('./module') 动态导入语法
+    const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
     const exportFromRegex = /export\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g;
     
     let match;
     while ((match = importRegex.exec(content)) !== null) {
+        // 修复：如果没有 from，路径会在 match[2] 中
+        deps.push(match[1] || match[2]); 
+    }
+    while ((match = dynamicImportRegex.exec(content)) !== null) {
         deps.push(match[1]);
     }
     while ((match = requireRegex.exec(content)) !== null) {
