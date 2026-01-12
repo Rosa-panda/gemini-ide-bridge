@@ -1,3 +1,6 @@
+# 依赖目录
+node_modules/
+
 # 测试目录
 test-lab/
 
