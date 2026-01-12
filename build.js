@@ -16,6 +16,9 @@ esbuild.buildSync({
     outfile: 'ide_core.js',
     format: 'iife',  // 立即执行函数，避免污染全局
     globalName: 'IDE_BRIDGE',  // 暴露的全局变量名
+    define: {
+        'IDE_VERSION': JSON.stringify(VERSION),  // 注入版本号常量
+    },
     banner: {
         js: `/**
  * Gemini IDE Bridge Core (V${VERSION})

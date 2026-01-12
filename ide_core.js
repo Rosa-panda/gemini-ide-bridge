@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T05:32:32.286Z
+ * 自动构建于 2026-01-12T09:54:07.726Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -1611,6 +1611,212 @@ var IDE_BRIDGE = (() => {
     mediaQuery.addEventListener("change", () => updateTheme());
   }
 
+  // src/shared/utils.js
+  function getLanguage(filename) {
+    const ext = filename.split(".").pop().toLowerCase();
+    const map = {
+      js: "javascript",
+      ts: "typescript",
+      jsx: "jsx",
+      tsx: "tsx",
+      py: "python",
+      java: "java",
+      cpp: "cpp",
+      c: "c",
+      go: "go",
+      rs: "rust",
+      rb: "ruby",
+      php: "php",
+      html: "html",
+      css: "css",
+      json: "json",
+      yaml: "yaml",
+      yml: "yaml",
+      md: "markdown",
+      sql: "sql",
+      sh: "bash",
+      vue: "vue",
+      svelte: "svelte",
+      xml: "xml",
+      env: "bash",
+      toml: "toml",
+      ini: "ini",
+      dockerfile: "dockerfile",
+      docker: "dockerfile"
+    };
+    return map[ext] || "text";
+  }
+  function estimateTokens(text) {
+    if (!text) return 0;
+    const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+    const otherChars = text.length - chineseChars;
+    return Math.ceil(chineseChars / 1.5 + otherChars / 3.5);
+  }
+  function formatTokens(count) {
+    if (count >= 1e3) {
+      return (count / 1e3).toFixed(1) + "k";
+    }
+    return count.toString();
+  }
+  function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+  }
+  var activeToasts = [];
+  function showToast(message, type = "success") {
+    const MAX_TOASTS = 5;
+    const TOAST_GAP = 12;
+    if (activeToasts.length >= MAX_TOASTS) {
+      const oldest = activeToasts.shift();
+      if (oldest) {
+        oldest.style.opacity = "0";
+        oldest.style.transform = `translateY(-20px)`;
+        setTimeout(() => oldest.remove(), 300);
+      }
+    }
+    const toast = document.createElement("div");
+    toast.className = "ide-toast-item";
+    toast.textContent = message;
+    const bgColor = type === "success" ? "#059669" : type === "error" ? "#dc2626" : "#2563eb";
+    Object.assign(toast.style, {
+      position: "fixed",
+      left: "30px",
+      bottom: "80px",
+      background: bgColor,
+      color: "white",
+      padding: "10px 20px",
+      borderRadius: "8px",
+      fontSize: "13px",
+      fontWeight: "bold",
+      zIndex: "2147483647",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+      transition: "all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
+      opacity: "0",
+      transform: "translateY(20px)"
+    });
+    document.body.appendChild(toast);
+    activeToasts.push(toast);
+    const updatePositions = () => {
+      activeToasts.forEach((el, index) => {
+        const offset = (activeToasts.length - 1 - index) * (45 + TOAST_GAP);
+        el.style.setProperty("--offset", `-${offset}px`);
+        el.style.opacity = "1";
+        el.style.transform = `translateY(var(--offset)) scale(var(--scale, 1))`;
+      });
+    };
+    requestAnimationFrame(() => updatePositions());
+    const duration = type === "error" ? 5e3 : 3e3;
+    setTimeout(() => {
+      toast.style.setProperty("--scale", "0.9");
+      toast.style.opacity = "0";
+      setTimeout(() => {
+        const index = activeToasts.indexOf(toast);
+        if (index > -1) {
+          activeToasts.splice(index, 1);
+          toast.remove();
+          updatePositions();
+        }
+      }, 400);
+    }, duration);
+  }
+
+  // src/gemini/input.js
+  function patchQuillDeleteText() {
+    const container = document.querySelector(".ql-container");
+    if (!(container == null ? void 0 : container.__quill)) {
+      setTimeout(patchQuillDeleteText, 500);
+      return;
+    }
+    const quill = container.__quill;
+    if (quill.__bypassPatched) return;
+    quill.__bypassPatched = true;
+    const originalDeleteText = quill.deleteText.bind(quill);
+    quill.deleteText = function(index, length, source) {
+      const totalLen = quill.getLength();
+      if (length > 1 && index + length >= totalLen - 1 && source !== "silent") {
+        console.warn("\u{1F6E1}\uFE0F \u62E6\u622A Gemini \u81EA\u52A8\u622A\u65AD:", { index, length, totalLen });
+        return;
+      }
+      return originalDeleteText(index, length, source);
+    };
+    console.log("\u{1F6E1}\uFE0F Quill \u5B57\u6570\u9650\u5236\u7ED5\u8FC7\u5DF2\u6FC0\u6D3B");
+  }
+  function getInputElement() {
+    const selectors = [
+      "rich-textarea .ql-editor",
+      'rich-textarea [contenteditable="true"]',
+      '.ql-editor[contenteditable="true"]',
+      'div[contenteditable="true"]'
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+  function getQuillInstance() {
+    const container = document.querySelector(".ql-container");
+    return (container == null ? void 0 : container.__quill) || null;
+  }
+  function insertToInput(text) {
+    const inputEl = getInputElement();
+    if (!inputEl) {
+      showToast("\u627E\u4E0D\u5230\u8F93\u5165\u6846", "error");
+      return false;
+    }
+    inputEl.focus();
+    const quill = getQuillInstance();
+    if (quill) {
+      const length = quill.getLength();
+      const insertionIndex = length > 1 ? length - 1 : 0;
+      const prefix = insertionIndex > 0 ? "\n\n" : "";
+      quill.insertText(insertionIndex, prefix + text, "user");
+      quill.setSelection(quill.getLength(), 0);
+    } else {
+      const existing = inputEl.textContent || "";
+      const newContent = existing ? existing + "\n\n" + text : text;
+      inputEl.textContent = newContent;
+      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+      inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+      const range = document.createRange();
+      const selection = window.getSelection();
+      range.selectNodeContents(inputEl);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    return { success: true, tokens: estimateTokens(text) };
+  }
+  function sendFile(filePath, content) {
+    const lang = getLanguage(filePath);
+    const text = `\u{1F4C4} **\u6587\u4EF6\u6700\u65B0\u72B6\u6001** - \`${filePath}\`
+
+\u4EE5\u4E0B\u662F\u8BE5\u6587\u4EF6\u5F53\u524D\u7684\u5B8C\u6574\u5185\u5BB9\uFF1A
+
+\`\`\`${lang}
+${content}
+\`\`\``;
+    const result = insertToInput(text);
+    if (result.success) {
+      showToast(`\u5DF2\u53D1\u9001: ${filePath.split("/").pop()} (~${formatTokens(result.tokens)} tokens)`);
+    }
+    return result.success;
+  }
+  function sendStructure(name, structure) {
+    const text = `\u76EE\u5F55 \`${name}\` \u7ED3\u6784:
+
+\`\`\`
+${structure}\`\`\``;
+    const result = insertToInput(text);
+    if (result.success) {
+      showToast(`\u5DF2\u53D1\u9001\u76EE\u5F55 (~${formatTokens(result.tokens)} tokens)`);
+    }
+    return result.success;
+  }
+
   // src/dialog/preview.js
   var UndoStack = class {
     constructor(maxSize = 50) {
@@ -2237,6 +2443,42 @@ var IDE_BRIDGE = (() => {
         backdrop.remove();
         dialog.remove();
       };
+      const askAiBtn = document.createElement("button");
+      askAiBtn.textContent = "\u2728 \u8BE2\u95EE AI";
+      Object.assign(askAiBtn.style, {
+        padding: "8px 16px",
+        borderRadius: "6px",
+        cursor: "pointer",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        color: "#fff",
+        border: "none",
+        fontSize: "14px",
+        marginRight: "auto"
+        // 推到左边
+      });
+      askAiBtn.onclick = () => {
+        const prompt2 = `\u{1F4C4} \u6587\u4EF6: \`${file}\`
+\u7B2C ${startLine} \u884C\u5F00\u59CB
+
+**\u539F\u59CB\u4EE3\u7801 (SEARCH):**
+\`\`\`
+${oldText}
+\`\`\`
+
+**\u4FEE\u6539\u540E\u4EE3\u7801 (REPLACE):**
+\`\`\`
+${editedContent}
+\`\`\`
+
+\u8BF7\u5206\u6790\u8FD9\u4E2A\u4EE3\u7801\u53D8\u66F4\uFF1A
+1. \u8FD9\u6BB5\u4FEE\u6539\u505A\u4E86\u4EC0\u4E48\uFF1F
+2. \u6709\u6CA1\u6709\u6F5C\u5728\u95EE\u9898\uFF1F
+3. \u6709\u6CA1\u6709\u66F4\u597D\u7684\u5199\u6CD5\uFF1F`;
+        const result = insertToInput(prompt2);
+        if (result.success) {
+          showToast("\u5DF2\u53D1\u9001\u5230 Gemini");
+        }
+      };
       const cancelBtn = document.createElement("button");
       cancelBtn.textContent = "\u53D6\u6D88";
       Object.assign(cancelBtn.style, {
@@ -2271,6 +2513,7 @@ var IDE_BRIDGE = (() => {
         closeAll();
         resolve({ confirmed: true, content: editedContent });
       };
+      footer.appendChild(askAiBtn);
       footer.appendChild(cancelBtn);
       footer.appendChild(confirmBtn);
       dialog.appendChild(diffBody);
@@ -2278,118 +2521,6 @@ var IDE_BRIDGE = (() => {
       document.body.appendChild(backdrop);
       document.body.appendChild(dialog);
     });
-  }
-
-  // src/shared/utils.js
-  function getLanguage(filename) {
-    const ext = filename.split(".").pop().toLowerCase();
-    const map = {
-      js: "javascript",
-      ts: "typescript",
-      jsx: "jsx",
-      tsx: "tsx",
-      py: "python",
-      java: "java",
-      cpp: "cpp",
-      c: "c",
-      go: "go",
-      rs: "rust",
-      rb: "ruby",
-      php: "php",
-      html: "html",
-      css: "css",
-      json: "json",
-      yaml: "yaml",
-      yml: "yaml",
-      md: "markdown",
-      sql: "sql",
-      sh: "bash",
-      vue: "vue",
-      svelte: "svelte",
-      xml: "xml",
-      env: "bash",
-      toml: "toml",
-      ini: "ini",
-      dockerfile: "dockerfile",
-      docker: "dockerfile"
-    };
-    return map[ext] || "text";
-  }
-  function estimateTokens(text) {
-    if (!text) return 0;
-    const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-    const otherChars = text.length - chineseChars;
-    return Math.ceil(chineseChars / 1.5 + otherChars / 3.5);
-  }
-  function formatTokens(count) {
-    if (count >= 1e3) {
-      return (count / 1e3).toFixed(1) + "k";
-    }
-    return count.toString();
-  }
-  function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-  }
-  var activeToasts = [];
-  function showToast(message, type = "success") {
-    const MAX_TOASTS = 5;
-    const TOAST_GAP = 12;
-    if (activeToasts.length >= MAX_TOASTS) {
-      const oldest = activeToasts.shift();
-      if (oldest) {
-        oldest.style.opacity = "0";
-        oldest.style.transform = `translateY(-20px)`;
-        setTimeout(() => oldest.remove(), 300);
-      }
-    }
-    const toast = document.createElement("div");
-    toast.className = "ide-toast-item";
-    toast.textContent = message;
-    const bgColor = type === "success" ? "#059669" : type === "error" ? "#dc2626" : "#2563eb";
-    Object.assign(toast.style, {
-      position: "fixed",
-      left: "30px",
-      bottom: "80px",
-      background: bgColor,
-      color: "white",
-      padding: "10px 20px",
-      borderRadius: "8px",
-      fontSize: "13px",
-      fontWeight: "bold",
-      zIndex: "2147483647",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-      transition: "all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
-      opacity: "0",
-      transform: "translateY(20px)"
-    });
-    document.body.appendChild(toast);
-    activeToasts.push(toast);
-    const updatePositions = () => {
-      activeToasts.forEach((el, index) => {
-        const offset = (activeToasts.length - 1 - index) * (45 + TOAST_GAP);
-        el.style.setProperty("--offset", `-${offset}px`);
-        el.style.opacity = "1";
-        el.style.transform = `translateY(var(--offset)) scale(var(--scale, 1))`;
-      });
-    };
-    requestAnimationFrame(() => updatePositions());
-    const duration = type === "error" ? 5e3 : 3e3;
-    setTimeout(() => {
-      toast.style.setProperty("--scale", "0.9");
-      toast.style.opacity = "0";
-      setTimeout(() => {
-        const index = activeToasts.indexOf(toast);
-        if (index > -1) {
-          activeToasts.splice(index, 1);
-          toast.remove();
-          updatePositions();
-        }
-      }, 400);
-    }, duration);
   }
 
   // src/dialog/history.js
@@ -4444,6 +4575,7 @@ var IDE_BRIDGE = (() => {
       document.removeEventListener("keydown", handleGlobalKey);
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      if (floatingBtn) floatingBtn.remove();
       backdrop.remove();
       win.remove();
     };
@@ -4473,6 +4605,77 @@ var IDE_BRIDGE = (() => {
       updateHighlight();
     });
     textarea.addEventListener("keydown", (e) => {
+      const pairs = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
+      const closingChars = new Set(Object.values(pairs));
+      const autoCloseBefore = " 	\n\r)}];,.:";
+      const isInStringOrComment = (pos) => {
+        const before = textarea.value.substring(0, pos);
+        const lines = before.split("\n");
+        const currentLine2 = lines[lines.length - 1];
+        if (language === "javascript" || language === "typescript" || language === "java") {
+          if (currentLine2.includes("//")) {
+            const commentStart = currentLine2.indexOf("//");
+            if (currentLine2.substring(0, commentStart).length < currentLine2.length) {
+              return true;
+            }
+          }
+        } else if (language === "python") {
+          if (currentLine2.includes("#")) {
+            const commentStart = currentLine2.indexOf("#");
+            if (currentLine2.substring(0, commentStart).length < currentLine2.length) {
+              return true;
+            }
+          }
+        }
+        const singleQuotes = (before.match(/'/g) || []).length;
+        const doubleQuotes = (before.match(/"/g) || []).length;
+        const backticks = (before.match(/`/g) || []).length;
+        if (e.key === "'" && singleQuotes % 2 === 1) return true;
+        if (e.key === '"' && doubleQuotes % 2 === 1) return true;
+        if (e.key === "`" && backticks % 2 === 1) return true;
+        return false;
+      };
+      if (pairs[e.key]) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const after = textarea.value.substring(end);
+        const shouldAutoClose = (
+          // 1. 光标后面是允许的字符（或文件末尾）
+          (after.length === 0 || autoCloseBefore.includes(after[0])) && // 2. 不在字符串或注释中（引号除外，引号总是成对的）
+          (e.key === '"' || e.key === "'" || !isInStringOrComment(start))
+        );
+        if (shouldAutoClose) {
+          e.preventDefault();
+          const before = textarea.value.substring(0, start);
+          textarea.value = before + e.key + pairs[e.key] + after;
+          textarea.selectionStart = textarea.selectionEnd = start + 1;
+          saveState();
+          updateGutter();
+          updateHighlight();
+        }
+      } else if (closingChars.has(e.key)) {
+        const start = textarea.selectionStart;
+        const after = textarea.value.substring(start);
+        if (after[0] === e.key) {
+          e.preventDefault();
+          textarea.selectionStart = textarea.selectionEnd = start + 1;
+        }
+      } else if (e.key === "Backspace") {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        if (start === end && start > 0) {
+          const before = textarea.value[start - 1];
+          const after = textarea.value[start];
+          if (pairs[before] === after) {
+            e.preventDefault();
+            textarea.value = textarea.value.substring(0, start - 1) + textarea.value.substring(start + 1);
+            textarea.selectionStart = textarea.selectionEnd = start - 1;
+            saveState();
+            updateGutter();
+            updateHighlight();
+          }
+        }
+      }
       if (e.key === "Tab") {
         e.preventDefault();
         const start = textarea.selectionStart;
@@ -4552,6 +4755,10 @@ var IDE_BRIDGE = (() => {
       if (isDragging) {
         win.style.left = `${e.clientX - dragOffset.x}px`;
         win.style.top = `${e.clientY - dragOffset.y}px`;
+        if (floatingBtn) {
+          floatingBtn.remove();
+          floatingBtn = null;
+        }
       }
       if (resizeEdge) {
         const dx = e.clientX - resizeStart.x;
@@ -4593,6 +4800,109 @@ var IDE_BRIDGE = (() => {
     };
     document.addEventListener("keydown", handleGlobalKey);
     backdrop.addEventListener("click", closeAll);
+    let floatingBtn = null;
+    let selectionDebounce = null;
+    const showFloatingButton = () => {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selectedText = textarea.value.substring(start, end).trim();
+      if (!selectedText || start === end) {
+        if (floatingBtn) {
+          floatingBtn.remove();
+          floatingBtn = null;
+        }
+        return;
+      }
+      const textareaRect = textarea.getBoundingClientRect();
+      const lineHeight = 18;
+      const charWidth = 7.2;
+      const textBefore = textarea.value.substring(0, start);
+      const lines = textBefore.split("\n");
+      const startLine = lines.length - 1;
+      const startCol = lines[lines.length - 1].length;
+      const textToEnd = textarea.value.substring(0, end);
+      const linesEnd = textToEnd.split("\n");
+      const endLine = linesEnd.length - 1;
+      const avgLine = (startLine + endLine) / 2;
+      const scrollTop = textarea.scrollTop;
+      if (!floatingBtn) {
+        floatingBtn = document.createElement("button");
+        floatingBtn.textContent = "\u2728 Ask AI";
+        Object.assign(floatingBtn.style, {
+          position: "fixed",
+          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          color: "white",
+          border: "none",
+          borderRadius: "6px",
+          padding: "6px 12px",
+          fontSize: "13px",
+          fontWeight: "500",
+          cursor: "pointer",
+          zIndex: "2147483649",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          transition: "transform 0.1s, opacity 0.1s",
+          whiteSpace: "nowrap"
+        });
+        floatingBtn.onmouseenter = () => {
+          floatingBtn.style.transform = "scale(1.05)";
+        };
+        floatingBtn.onmouseleave = () => {
+          floatingBtn.style.transform = "scale(1)";
+        };
+        floatingBtn.onclick = (e) => {
+          e.stopPropagation();
+          const prompt2 = `\u{1F4C4} \u6587\u4EF6: \`${filePath}\` (${language})
+\u7B2C ${startLine + 1} - ${endLine + 1} \u884C
+
+\u8BF7\u5206\u6790\u8FD9\u6BB5\u4EE3\u7801\uFF1A
+
+\`\`\`${language}
+${selectedText}
+\`\`\``;
+          const result = insertToInput(prompt2);
+          if (result.success) {
+            showToast("\u5DF2\u53D1\u9001\u5230 Gemini");
+          } else {
+            showToast("\u53D1\u9001\u5931\u8D25", "error");
+          }
+          if (floatingBtn) {
+            floatingBtn.remove();
+            floatingBtn = null;
+          }
+        };
+        document.body.appendChild(floatingBtn);
+      }
+      const btnWidth = 90;
+      const btnHeight = 32;
+      const gap = 8;
+      let left = textareaRect.left + startCol * charWidth + 50;
+      let top = textareaRect.top + startLine * lineHeight - scrollTop - btnHeight - gap + 4;
+      if (left < textareaRect.left + 10) left = textareaRect.left + 10;
+      if (left + btnWidth > textareaRect.right - 10) {
+        left = textareaRect.right - btnWidth - 10;
+      }
+      if (top < textareaRect.top + 10) {
+        top = textareaRect.top + endLine * lineHeight - scrollTop + lineHeight + gap + 4;
+      }
+      floatingBtn.style.left = `${left}px`;
+      floatingBtn.style.top = `${top}px`;
+    };
+    textarea.addEventListener("mouseup", () => {
+      if (selectionDebounce) clearTimeout(selectionDebounce);
+      selectionDebounce = setTimeout(showFloatingButton, 150);
+    });
+    textarea.addEventListener("keyup", (e) => {
+      if (e.shiftKey && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+        if (selectionDebounce) clearTimeout(selectionDebounce);
+        selectionDebounce = setTimeout(showFloatingButton, 150);
+      }
+    });
+    textarea.addEventListener("scroll", () => {
+      if (floatingBtn) {
+        floatingBtn.remove();
+        floatingBtn = null;
+      }
+    });
     document.body.append(backdrop, win);
     updateAll();
     textarea.focus();
@@ -5429,100 +5739,6 @@ ${selectedContent}
     }
   }
 
-  // src/gemini/input.js
-  function patchQuillDeleteText() {
-    const container = document.querySelector(".ql-container");
-    if (!(container == null ? void 0 : container.__quill)) {
-      setTimeout(patchQuillDeleteText, 500);
-      return;
-    }
-    const quill = container.__quill;
-    if (quill.__bypassPatched) return;
-    quill.__bypassPatched = true;
-    const originalDeleteText = quill.deleteText.bind(quill);
-    quill.deleteText = function(index, length, source) {
-      const totalLen = quill.getLength();
-      if (length > 1 && index + length >= totalLen - 1 && source !== "silent") {
-        console.warn("\u{1F6E1}\uFE0F \u62E6\u622A Gemini \u81EA\u52A8\u622A\u65AD:", { index, length, totalLen });
-        return;
-      }
-      return originalDeleteText(index, length, source);
-    };
-    console.log("\u{1F6E1}\uFE0F Quill \u5B57\u6570\u9650\u5236\u7ED5\u8FC7\u5DF2\u6FC0\u6D3B");
-  }
-  function getInputElement() {
-    const selectors = [
-      "rich-textarea .ql-editor",
-      'rich-textarea [contenteditable="true"]',
-      '.ql-editor[contenteditable="true"]',
-      'div[contenteditable="true"]'
-    ];
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) return el;
-    }
-    return null;
-  }
-  function getQuillInstance() {
-    const container = document.querySelector(".ql-container");
-    return (container == null ? void 0 : container.__quill) || null;
-  }
-  function insertToInput(text) {
-    const inputEl = getInputElement();
-    if (!inputEl) {
-      showToast("\u627E\u4E0D\u5230\u8F93\u5165\u6846", "error");
-      return false;
-    }
-    inputEl.focus();
-    const quill = getQuillInstance();
-    if (quill) {
-      const length = quill.getLength();
-      const insertionIndex = length > 1 ? length - 1 : 0;
-      const prefix = insertionIndex > 0 ? "\n\n" : "";
-      quill.insertText(insertionIndex, prefix + text, "user");
-      quill.setSelection(quill.getLength(), 0);
-    } else {
-      const existing = inputEl.textContent || "";
-      const newContent = existing ? existing + "\n\n" + text : text;
-      inputEl.textContent = newContent;
-      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-      inputEl.dispatchEvent(new Event("change", { bubbles: true }));
-      const range = document.createRange();
-      const selection = window.getSelection();
-      range.selectNodeContents(inputEl);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-    return { success: true, tokens: estimateTokens(text) };
-  }
-  function sendFile(filePath, content) {
-    const lang = getLanguage(filePath);
-    const text = `\u{1F4C4} **\u6587\u4EF6\u6700\u65B0\u72B6\u6001** - \`${filePath}\`
-
-\u4EE5\u4E0B\u662F\u8BE5\u6587\u4EF6\u5F53\u524D\u7684\u5B8C\u6574\u5185\u5BB9\uFF1A
-
-\`\`\`${lang}
-${content}
-\`\`\``;
-    const result = insertToInput(text);
-    if (result.success) {
-      showToast(`\u5DF2\u53D1\u9001: ${filePath.split("/").pop()} (~${formatTokens(result.tokens)} tokens)`);
-    }
-    return result.success;
-  }
-  function sendStructure(name, structure) {
-    const text = `\u76EE\u5F55 \`${name}\` \u7ED3\u6784:
-
-\`\`\`
-${structure}\`\`\``;
-    const result = insertToInput(text);
-    if (result.success) {
-      showToast(`\u5DF2\u53D1\u9001\u76EE\u5F55 (~${formatTokens(result.tokens)} tokens)`);
-    }
-    return result.success;
-  }
-
   // src/gemini/index.js
   var gemini = {
     observer: null,
@@ -5972,7 +6188,7 @@ if __name__ == "__main__":
       color: "var(--ide-text-secondary)",
       textAlign: "center"
     });
-    footer.textContent = `V${typeof IDE_VERSION !== "undefined" ? IDE_VERSION : "?"} | \u652F\u6301\u7248\u672C\u56DE\u9000`;
+    footer.textContent = `V${true ? "0.0.5" : "?"} | \u652F\u6301\u7248\u672C\u56DE\u9000`;
     sidebar.appendChild(footer);
     return sidebar;
   }
@@ -6544,6 +6760,121 @@ ${content}
     renderCallback(currentTree, matches, searchTerm, fileMatchCount);
   }
 
+  // src/core/skeleton.js
+  function generateSkeleton(code, filePath) {
+    const ext = filePath.split(".").pop().toLowerCase();
+    const lines = code.split("\n");
+    const sigs = getLogicSignature(code);
+    let skeleton = `// ========== FILE: ${filePath} ==========
+`;
+    if (ext === "py") {
+      return skeleton + generatePythonSkeleton(lines, sigs);
+    }
+    return skeleton + generateJsSkeleton(lines, sigs);
+  }
+  function generateJsSkeleton(lines, sigs) {
+    const result = [];
+    let currentClass = null;
+    let currentIndent = 0;
+    sigs.forEach((sig, index) => {
+      var _a;
+      const c = sig.content.trim();
+      const line = lines[sig.originalIndex];
+      const prevLine = sig.originalIndex > 0 ? lines[sig.originalIndex - 1] : "";
+      if (prevLine.trim().startsWith("/**") || prevLine.trim().startsWith("///")) {
+        result.push(prevLine);
+      }
+      if (c.startsWith("import ") || c.startsWith("export ")) {
+        result.push(line);
+        return;
+      }
+      if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
+        if (currentClass) {
+          result.push(" ".repeat(currentIndent) + "}");
+          result.push("");
+        }
+        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
+        currentIndent = sig.indent;
+        result.push(line.split("{")[0] + "{");
+        return;
+      }
+      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || // 方法
+      c.match(/^\w+\s*=\s*(async\s*)?\([^)]*\)\s*=>/)) {
+        let signature = line.split("{")[0].split("=>")[0].trim();
+        if (currentClass) {
+          result.push(" ".repeat(sig.indent) + signature + " { /* ... */ }");
+        } else {
+          result.push(signature + " { /* ... */ }");
+        }
+        return;
+      }
+      if (c.startsWith("interface ") || c.startsWith("type ") || c.startsWith("export interface ") || c.startsWith("export type ")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("export const ") || c.startsWith("export let ") || c.startsWith("export var ")) {
+        result.push(line.split("=")[0] + "= ...;");
+        return;
+      }
+    });
+    if (currentClass) {
+      result.push(" ".repeat(currentIndent) + "}");
+    }
+    return result.join("\n");
+  }
+  function generatePythonSkeleton(lines, sigs) {
+    const result = [];
+    let currentClass = null;
+    let currentIndent = 0;
+    sigs.forEach((sig, index) => {
+      var _a;
+      const c = sig.content.trim();
+      const line = lines[sig.originalIndex];
+      const nextLine = sig.originalIndex < lines.length - 1 ? lines[sig.originalIndex + 1] : "";
+      if (c.startsWith("import ") || c.startsWith("from ")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("@")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("class ")) {
+        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
+        currentIndent = sig.indent;
+        result.push(line);
+        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
+          result.push(nextLine);
+          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
+            result.push(lines[i]);
+            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
+              break;
+            }
+          }
+        }
+        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push("");
+        return;
+      }
+      if (c.startsWith("def ") || c.startsWith("async def ")) {
+        result.push(line);
+        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
+          result.push(nextLine);
+          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
+            result.push(lines[i]);
+            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
+              break;
+            }
+          }
+        }
+        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push("");
+        return;
+      }
+    });
+    return result.join("\n");
+  }
+
   // src/ui/index.js
   var UI = class {
     constructor() {
@@ -6650,6 +6981,34 @@ ${structure}\`\`\``;
         const result = gemini.insertToInput(text);
         if (result.success) {
           showToast(`\u5DF2\u53D1\u9001\u76EE\u5F55 (~${formatTokens(result.tokens)} tokens)`);
+        }
+      }));
+      actionBar.appendChild(createButton("\u{1F5FA}\uFE0F \u9AA8\u67B6\u56FE", async () => {
+        showToast("\u751F\u6210\u9AA8\u67B6\u56FE\u4E2D...", "info");
+        try {
+          const allFiles = await fs.getAllFilePaths();
+          const skeletons = [];
+          for (const path of allFiles) {
+            if (path.match(/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz)$/i)) continue;
+            const content = await fs.readFile(path);
+            if (content === null || content.length > 1e5) continue;
+            const skeleton = generateSkeleton(content, path);
+            if (skeleton.trim()) {
+              skeletons.push(skeleton);
+            }
+          }
+          const fullMap = skeletons.join("\n\n");
+          const result = gemini.insertToInput(`# \u9879\u76EE\u7ED3\u6784\u9AA8\u67B6\u56FE
+
+${fullMap}
+
+---
+\u8BF7\u5206\u6790\u8FD9\u4E2A\u9879\u76EE\u7684\u7ED3\u6784\u548C\u529F\u80FD\u3002`);
+          if (result.success) {
+            showToast(`\u5DF2\u53D1\u9001\u9AA8\u67B6\u56FE (~${formatTokens(result.tokens)} tokens)`);
+          }
+        } catch (err) {
+          showToast("\u751F\u6210\u5931\u8D25: " + err.message, "error");
         }
       }));
       actionBar.appendChild(createButton("\u{1F4E6} \u4EA4\u63A5", () => {

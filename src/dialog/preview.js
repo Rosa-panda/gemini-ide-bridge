@@ -9,6 +9,8 @@
  */
 
 import { detectTheme } from '../shared/theme.js';
+import { insertToInput } from '../gemini/input.js';
+import { showToast } from '../shared/utils.js';
 
 /**
  * 简单的 Undo/Redo 栈（参考 Firefox devtools undo.js）
@@ -772,6 +774,40 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
 
         const closeAll = () => { backdrop.remove(); dialog.remove(); };
 
+        // 询问 AI 按钮
+        const askAiBtn = document.createElement('button');
+        askAiBtn.textContent = '✨ 询问 AI';
+        Object.assign(askAiBtn.style, {
+            padding: '8px 16px', borderRadius: '6px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: '#fff', border: 'none', fontSize: '14px',
+            marginRight: 'auto'  // 推到左边
+        });
+        askAiBtn.onclick = () => {
+            const prompt = `📄 文件: \`${file}\`
+第 ${startLine} 行开始
+
+**原始代码 (SEARCH):**
+\`\`\`
+${oldText}
+\`\`\`
+
+**修改后代码 (REPLACE):**
+\`\`\`
+${editedContent}
+\`\`\`
+
+请分析这个代码变更：
+1. 这段修改做了什么？
+2. 有没有潜在问题？
+3. 有没有更好的写法？`;
+            
+            const result = insertToInput(prompt);
+            if (result.success) {
+                showToast('已发送到 Gemini');
+            }
+        };
+
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = '取消';
         Object.assign(cancelBtn.style, {
@@ -796,6 +832,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             resolve({ confirmed: true, content: editedContent }); 
         };
 
+        footer.appendChild(askAiBtn);
         footer.appendChild(cancelBtn);
         footer.appendChild(confirmBtn);
 

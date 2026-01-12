@@ -9,6 +9,7 @@ import { highlightToDOM, detectLanguage, getHighlightStyles } from './highlight.
 import { createMinimap } from './minimap.js';
 import { createFoldingManager, getFoldingStyles } from './folding.js';
 import { injectEditorStyles } from './styles.js';
+import { insertToInput } from '../gemini/input.js';
 
 /**
  * 显示编辑器对话框
@@ -335,6 +336,7 @@ export async function showEditorDialog(filePath) {
         document.removeEventListener('keydown', handleGlobalKey);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        if (floatingBtn) floatingBtn.remove();
         backdrop.remove();
         win.remove();
     };
@@ -362,6 +364,100 @@ export async function showEditorDialog(filePath) {
     });
     
     textarea.addEventListener('keydown', (e) => {
+        // === 自动闭合括号（VSCode 风格，带上下文判断）===
+        const pairs = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+        const closingChars = new Set(Object.values(pairs));
+        
+        // autoCloseBefore: 光标后面必须是这些字符才能自动闭合
+        // 参考 VSCode 的 languageDefined 策略：空白、闭括号、非一元运算符等
+        const autoCloseBefore = ' \t\n\r)}];,.:';
+        
+        // 检查是否在字符串或注释中（简化版 notIn 检测）
+        const isInStringOrComment = (pos) => {
+            const before = textarea.value.substring(0, pos);
+            const lines = before.split('\n');
+            const currentLine = lines[lines.length - 1];
+            
+            // 检测是否在单行注释中
+            if (language === 'javascript' || language === 'typescript' || language === 'java') {
+                if (currentLine.includes('//')) {
+                    const commentStart = currentLine.indexOf('//');
+                    if (currentLine.substring(0, commentStart).length < currentLine.length) {
+                        return true; // 在注释中
+                    }
+                }
+            } else if (language === 'python') {
+                if (currentLine.includes('#')) {
+                    const commentStart = currentLine.indexOf('#');
+                    if (currentLine.substring(0, commentStart).length < currentLine.length) {
+                        return true;
+                    }
+                }
+            }
+            
+            // 检测是否在字符串中（简化版：统计引号数量）
+            const singleQuotes = (before.match(/'/g) || []).length;
+            const doubleQuotes = (before.match(/"/g) || []).length;
+            const backticks = (before.match(/`/g) || []).length;
+            
+            // 如果引号数量是奇数，说明在字符串中
+            if (e.key === "'" && singleQuotes % 2 === 1) return true;
+            if (e.key === '"' && doubleQuotes % 2 === 1) return true;
+            if (e.key === '`' && backticks % 2 === 1) return true;
+            
+            return false;
+        };
+        
+        if (pairs[e.key]) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const after = textarea.value.substring(end);
+            
+            // 智能判断：只有在合适的上下文中才自动闭合
+            const shouldAutoClose = 
+                // 1. 光标后面是允许的字符（或文件末尾）
+                (after.length === 0 || autoCloseBefore.includes(after[0])) &&
+                // 2. 不在字符串或注释中（引号除外，引号总是成对的）
+                (e.key === '"' || e.key === "'" || !isInStringOrComment(start));
+            
+            if (shouldAutoClose) {
+                // 输入左括号，自动补右括号
+                e.preventDefault();
+                const before = textarea.value.substring(0, start);
+                
+                textarea.value = before + e.key + pairs[e.key] + after;
+                textarea.selectionStart = textarea.selectionEnd = start + 1;
+                saveState();
+                updateGutter();
+                updateHighlight();
+            }
+        } else if (closingChars.has(e.key)) {
+            // 智能跳过（autoClosingOvertype）：输入右括号时，如果后面已有则跳过
+            const start = textarea.selectionStart;
+            const after = textarea.value.substring(start);
+            if (after[0] === e.key) {
+                e.preventDefault();
+                textarea.selectionStart = textarea.selectionEnd = start + 1;
+            }
+        } else if (e.key === 'Backspace') {
+            // 智能退格删除（autoClosingDelete）：删除左括号时同时删除右括号
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            if (start === end && start > 0) {
+                const before = textarea.value[start - 1];
+                const after = textarea.value[start];
+                if (pairs[before] === after) {
+                    e.preventDefault();
+                    textarea.value = textarea.value.substring(0, start - 1) + textarea.value.substring(start + 1);
+                    textarea.selectionStart = textarea.selectionEnd = start - 1;
+                    saveState();
+                    updateGutter();
+                    updateHighlight();
+                }
+            }
+        }
+        
+        // === Tab 缩进 ===
         if (e.key === 'Tab') {
             e.preventDefault();
             const start = textarea.selectionStart;
@@ -383,6 +479,7 @@ export async function showEditorDialog(filePath) {
             updateHighlight();
         }
         
+        // === Undo/Redo ===
         if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
             doUndo();
@@ -454,6 +551,11 @@ export async function showEditorDialog(filePath) {
         if (isDragging) {
             win.style.left = `${e.clientX - dragOffset.x}px`;
             win.style.top = `${e.clientY - dragOffset.y}px`;
+            // 移动窗口时隐藏悬浮按钮，防止"按钮漂移"
+            if (floatingBtn) {
+                floatingBtn.remove();
+                floatingBtn = null;
+            }
         }
         
         if (resizeEdge) {
@@ -504,6 +606,146 @@ export async function showEditorDialog(filePath) {
     document.addEventListener('keydown', handleGlobalKey);
     
     backdrop.addEventListener('click', closeAll);
+    
+    // === 选中文本悬浮按钮（基于 textarea 的 selection API）===
+    let floatingBtn = null;
+    let selectionDebounce = null;
+    
+    const showFloatingButton = () => {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const selectedText = textarea.value.substring(start, end).trim();
+        
+        // 如果没有选中文本，隐藏按钮
+        if (!selectedText || start === end) {
+            if (floatingBtn) {
+                floatingBtn.remove();
+                floatingBtn = null;
+            }
+            return;
+        }
+        
+        // 计算选中文本的位置（基于 textarea 的位置和行列）
+        const textareaRect = textarea.getBoundingClientRect();
+        const lineHeight = 18; // 与 CSS 一致
+        const charWidth = 7.2; // 等宽字体的字符宽度估算
+        
+        // 计算选中起始位置的行列
+        const textBefore = textarea.value.substring(0, start);
+        const lines = textBefore.split('\n');
+        const startLine = lines.length - 1;
+        const startCol = lines[lines.length - 1].length;
+        
+        // 计算选中结束位置的行列
+        const textToEnd = textarea.value.substring(0, end);
+        const linesEnd = textToEnd.split('\n');
+        const endLine = linesEnd.length - 1;
+        
+        // 计算按钮位置（在选中区域上方中间）
+        const avgLine = (startLine + endLine) / 2;
+        const scrollTop = textarea.scrollTop;
+        
+        // 创建或更新悬浮按钮
+        if (!floatingBtn) {
+            floatingBtn = document.createElement('button');
+            floatingBtn.textContent = '✨ Ask AI';
+            Object.assign(floatingBtn.style, {
+                position: 'fixed',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                zIndex: '2147483649',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                transition: 'transform 0.1s, opacity 0.1s',
+                whiteSpace: 'nowrap',
+            });
+            
+            floatingBtn.onmouseenter = () => {
+                floatingBtn.style.transform = 'scale(1.05)';
+            };
+            floatingBtn.onmouseleave = () => {
+                floatingBtn.style.transform = 'scale(1)';
+            };
+            
+            floatingBtn.onclick = (e) => {
+                e.stopPropagation();
+                
+                // 构建更好的提示词，包含文件路径和语言信息
+                const prompt = `📄 文件: \`${filePath}\` (${language})
+第 ${startLine + 1} - ${endLine + 1} 行
+
+请分析这段代码：
+
+\`\`\`${language}
+${selectedText}
+\`\`\``;
+                
+                const result = insertToInput(prompt);
+                if (result.success) {
+                    showToast('已发送到 Gemini');
+                } else {
+                    showToast('发送失败', 'error');
+                }
+                
+                // 隐藏按钮
+                if (floatingBtn) {
+                    floatingBtn.remove();
+                    floatingBtn = null;
+                }
+            };
+            
+            document.body.appendChild(floatingBtn);
+        }
+        
+        // 智能定位按钮
+        const btnWidth = 90;
+        const btnHeight = 32;
+        const gap = 8;
+        
+        // 计算按钮位置（相对于 textarea）
+        let left = textareaRect.left + startCol * charWidth + 50;
+        let top = textareaRect.top + (startLine * lineHeight) - scrollTop - btnHeight - gap + 4;
+        
+        // 边界检测
+        if (left < textareaRect.left + 10) left = textareaRect.left + 10;
+        if (left + btnWidth > textareaRect.right - 10) {
+            left = textareaRect.right - btnWidth - 10;
+        }
+        if (top < textareaRect.top + 10) {
+            // 上方空间不够，放到下方
+            top = textareaRect.top + (endLine * lineHeight) - scrollTop + lineHeight + gap + 4;
+        }
+        
+        floatingBtn.style.left = `${left}px`;
+        floatingBtn.style.top = `${top}px`;
+    };
+    
+    // 监听 textarea 的选中变化（mouseup 和 keyup）
+    textarea.addEventListener('mouseup', () => {
+        if (selectionDebounce) clearTimeout(selectionDebounce);
+        selectionDebounce = setTimeout(showFloatingButton, 150);
+    });
+    
+    textarea.addEventListener('keyup', (e) => {
+        // 只在 Shift+方向键选中时触发
+        if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+            if (selectionDebounce) clearTimeout(selectionDebounce);
+            selectionDebounce = setTimeout(showFloatingButton, 150);
+        }
+    });
+    
+    // 滚动时隐藏按钮
+    textarea.addEventListener('scroll', () => {
+        if (floatingBtn) {
+            floatingBtn.remove();
+            floatingBtn = null;
+        }
+    });
     
     // === 初始化 ===
     document.body.append(backdrop, win);
