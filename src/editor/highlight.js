@@ -222,33 +222,84 @@ export function highlightToDOM(code, language, container) {
         
         const trimmed = line.trimStart();
         
-        // 检查是否在多行注释中
-        if (inBlockComment) {
-            const span = document.createElement('span');
-            span.className = 'ide-hl-comment';
-            span.textContent = line;
-            container.appendChild(span);
-            
-            // 检查多行注释是否结束
-            if (blockComment && line.includes(blockComment[1])) {
-                inBlockComment = false;
-            }
-            return;
-        }
+        // 复杂状态处理：支持单行内混合代码和多行注释
+        let remaining = line;
         
-        // 检查多行注释开始
-        if (blockComment && trimmed.startsWith(blockComment[0])) {
-            const span = document.createElement('span');
-            span.className = 'ide-hl-comment';
-            span.textContent = line;
-            container.appendChild(span);
-            
-            // 检查是否在同一行结束
-            if (!line.includes(blockComment[1]) || 
-                line.indexOf(blockComment[0]) >= line.lastIndexOf(blockComment[1])) {
-                inBlockComment = true;
+        while (remaining.length > 0) {
+            if (inBlockComment) {
+                // 在多行注释中，寻找结束符
+                const endIdx = blockComment ? remaining.indexOf(blockComment[1]) : -1;
+                
+                if (endIdx !== -1) {
+                    // 找到了结束符
+                    const commentPart = remaining.slice(0, endIdx + blockComment[1].length);
+                    const span = document.createElement('span');
+                    span.className = 'ide-hl-comment';
+                    span.textContent = commentPart;
+                    container.appendChild(span);
+                    
+                    remaining = remaining.slice(endIdx + blockComment[1].length);
+                    inBlockComment = false;
+                } else {
+                    // 没找到结束符，整段都是注释
+                    const span = document.createElement('span');
+                    span.className = 'ide-hl-comment';
+                    span.textContent = remaining;
+                    container.appendChild(span);
+                    remaining = '';
+                }
+            } else {
+                // 不在注释中，寻找多行注释开始符
+                const startIdx = blockComment ? remaining.indexOf(blockComment[0]) : -1;
+                const lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+                
+                // 检查单行注释是否更早出现（优先级最高）
+                if (lineCommentIdx !== -1 && (startIdx === -1 || lineCommentIdx < startIdx)) {
+                    // 先处理前面的代码
+                    if (lineCommentIdx > 0) {
+                        const codePart = remaining.slice(0, lineCommentIdx);
+                        const tokens = tokenizeLine(codePart, lang);
+                        tokens.forEach(t => renderToken(t, container));
+                    }
+                    // 处理剩下的整行注释
+                    const span = document.createElement('span');
+                    span.className = 'ide-hl-comment';
+                    span.textContent = remaining.slice(lineCommentIdx);
+                    container.appendChild(span);
+                    remaining = '';
+                    break;
+                }
+                
+                if (startIdx !== -1) {
+                    // 发现了多行注释开始
+                    // 先渲染前面的代码
+                    if (startIdx > 0) {
+                        const codePart = remaining.slice(0, startIdx);
+                        const tokens = tokenizeLine(codePart, lang);
+                        tokens.forEach(t => renderToken(t, container));
+                    }
+                    remaining = remaining.slice(startIdx);
+                    inBlockComment = true;
+                } else {
+                    // 只有代码
+                    const tokens = tokenizeLine(remaining, lang);
+                    tokens.forEach(t => renderToken(t, container));
+                    remaining = '';
+                }
             }
-            return;
+        }
+        return;
+        
+        /* 辅助渲染函数 */
+        function renderToken(token, container) {
+            if (token.type) {
+                const span = document.createElement('span');
+                span.className = `ide-hl-${token.type}`;
+                span.textContent = token.text;
+                container.appendChild(span);
+            } else {
+                container.appendChild(document.createTextNode(token.text));
+            }
         }
         
         // 检查单行注释（整行）

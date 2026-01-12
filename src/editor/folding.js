@@ -173,12 +173,26 @@ function analyzeBracketFolding(lines, ranges, language) {
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        let inString = false;
+        let stringChar = '';
         
         for (let j = 0; j < line.length; j++) {
             const char = line[j];
             
-            // 跳过字符串中的括号
-            if (isInString(line, j)) continue;
+            // 优化的字符串状态维护，O(N) 复杂度
+            if (!inString) {
+                if (char === '"' || char === "'" || char === '`') {
+                    inString = true;
+                    stringChar = char;
+                    continue;
+                }
+                if (char === '/' && line[j + 1] === '/') break; // 行注释，跳过这一行剩余部分
+            } else {
+                if (char === stringChar && line[j - 1] !== '\\') {
+                    inString = false;
+                }
+                continue; // 在字符串中，跳过括号检查
+            }
             
             if (char === '{' || char === '[') {
                 bracketStack.push({ char, line: i, col: j });

@@ -224,24 +224,30 @@ export async function showEditorDialog(filePath) {
         );
         
         // 构建可见代码，处理折叠
+        // 核心修正：
+        // 1. 如果有折叠，我们只渲染可见部分到高亮层
+        // 2. 注意：Textarea 依然保持全文（这是光标错位的根源，但为了数据安全暂时保留）
+        // 3. 增加占位符样式
+        
         const visibleLines = [];
         for (let i = 0; i < lines.length; i++) {
             if (foldingManager.isLineHidden(i)) {
-                continue; // 跳过隐藏的行
+                continue;
             }
             
             let line = lines[i];
-            
-            // 如果是折叠区域的起始行，添加折叠标记
             const collapsedRange = collapsedStarts.get(i);
+            
+            // 构建高亮 DOM
             if (collapsedRange) {
                 const hiddenCount = collapsedRange.endLine - collapsedRange.startLine;
-                line = line + ` ⋯ ${hiddenCount} lines`;
+                // 使用特殊的占位符，并在 highlight.js 中处理（或直接作为文本显示）
+                line = line.trimEnd() + ` ... ⟪ ${hiddenCount} lines ⟫`;
             }
-            
             visibleLines.push(line);
         }
         
+        // 渲染可见部分
         const visibleCode = visibleLines.join('\n');
         highlightToDOM(visibleCode, language, highlightLayer);
         
