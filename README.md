@@ -257,4 +257,4 @@ node build.js
 
 ## License
 
-MIT
+GPL-3.0
