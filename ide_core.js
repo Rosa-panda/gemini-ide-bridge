@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T12:37:20.958Z
+ * 自动构建于 2026-01-12T12:57:29.758Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -1877,117 +1877,7 @@ ${structure}\`\`\``;
     return result.success;
   }
 
-  // src/dialog/preview.js
-  var UndoStack = class {
-    constructor(maxSize = 50) {
-      this._stack = [];
-      this._index = -1;
-      this._maxSize = maxSize;
-    }
-    push(state) {
-      this._stack = this._stack.slice(0, this._index + 1);
-      this._stack.push(state);
-      if (this._stack.length > this._maxSize) {
-        this._stack.shift();
-      } else {
-        this._index++;
-      }
-    }
-    undo() {
-      if (!this.canUndo()) return null;
-      this._index--;
-      return this._stack[this._index];
-    }
-    redo() {
-      if (!this.canRedo()) return null;
-      this._index++;
-      return this._stack[this._index];
-    }
-    canUndo() {
-      return this._index > 0;
-    }
-    canRedo() {
-      return this._index < this._stack.length - 1;
-    }
-    current() {
-      return this._stack[this._index] || null;
-    }
-  };
-  function getCaretPosition(el) {
-    const sel = window.getSelection();
-    if (!sel.rangeCount) return 0;
-    const range = sel.getRangeAt(0);
-    const prefix = range.cloneRange();
-    prefix.selectNodeContents(el);
-    prefix.setEnd(range.endContainer, range.endOffset);
-    return prefix.toString().length;
-  }
-  function setCaretPosition(el, pos) {
-    const sel = window.getSelection();
-    let charCount = 0;
-    function traverse(node) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const nextCount = charCount + node.length;
-        if (pos <= nextCount) {
-          const range = document.createRange();
-          range.setStart(node, pos - charCount);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-          return true;
-        }
-        charCount = nextCount;
-      } else {
-        for (const child of node.childNodes) {
-          if (traverse(child)) return true;
-        }
-      }
-      return false;
-    }
-    traverse(el);
-  }
-  function getDiffColors() {
-    const theme = detectTheme();
-    if (theme === "light") {
-      return {
-        // 删除行
-        deleteBg: "#ffd7d5",
-        deleteText: "#82071e",
-        deleteCharBg: "#ff8182",
-        deleteCharText: "#ffffff",
-        // 新增行
-        insertBg: "#d1f4d1",
-        insertText: "#055d20",
-        insertCharBg: "#4fb04f",
-        insertCharText: "#ffffff",
-        // 修改行
-        modifyBg: "#fff4ce",
-        // 空白行
-        emptyBg: "#f6f8fa",
-        // 相同行透明度
-        equalOpacity: "0.5"
-      };
-    } else {
-      return {
-        // 删除行
-        deleteBg: "#4b1818",
-        deleteText: "#ffa8a8",
-        deleteCharBg: "#c44444",
-        deleteCharText: "#ffffff",
-        // 新增行
-        insertBg: "#1a4d1a",
-        insertText: "#a8ffa8",
-        insertCharBg: "#44c444",
-        insertCharText: "#ffffff",
-        // 修改行
-        modifyBg: "#3d2a1a",
-        // 空白行
-        emptyBg: "rgba(0, 0, 0, 0.1)",
-        // 相同行透明度
-        equalOpacity: "0.6"
-      };
-    }
-  }
+  // src/shared/diff.js
   function computeLineDiff(oldLines, newLines) {
     const m = oldLines.length;
     const n = newLines.length;
@@ -2074,6 +1964,126 @@ ${structure}\`\`\``;
     });
     return totalChars > 0 ? changedChars / totalChars : 0;
   }
+  function getDiffColors(theme) {
+    if (theme === "light") {
+      return {
+        // 删除行
+        deleteBg: "#ffd7d5",
+        deleteText: "#82071e",
+        deleteCharBg: "#ff8182",
+        deleteCharText: "#ffffff",
+        // 新增行
+        insertBg: "#d1f4d1",
+        insertText: "#055d20",
+        insertCharBg: "#4fb04f",
+        insertCharText: "#ffffff",
+        // 修改行
+        modifyBg: "#fff4ce",
+        // 空白行
+        emptyBg: "#f6f8fa",
+        // 相同行透明度
+        equalOpacity: "0.5"
+      };
+    } else {
+      return {
+        // 删除行
+        deleteBg: "#4b1818",
+        deleteText: "#ffa8a8",
+        deleteCharBg: "#c44444",
+        deleteCharText: "#ffffff",
+        // 新增行
+        insertBg: "#1a4d1a",
+        insertText: "#a8ffa8",
+        insertCharBg: "#44c444",
+        insertCharText: "#ffffff",
+        // 修改行
+        modifyBg: "#3d2a1a",
+        // 空白行
+        emptyBg: "rgba(0, 0, 0, 0.1)",
+        // 相同行透明度
+        equalOpacity: "0.6"
+      };
+    }
+  }
+
+  // src/shared/undo.js
+  var UndoStack = class {
+    constructor(maxSize = 50) {
+      this._stack = [];
+      this._index = -1;
+      this._maxSize = maxSize;
+    }
+    push(state) {
+      this._stack = this._stack.slice(0, this._index + 1);
+      this._stack.push(state);
+      if (this._stack.length > this._maxSize) {
+        this._stack.shift();
+      } else {
+        this._index++;
+      }
+    }
+    undo() {
+      if (!this.canUndo()) return null;
+      this._index--;
+      return this._stack[this._index];
+    }
+    redo() {
+      if (!this.canRedo()) return null;
+      this._index++;
+      return this._stack[this._index];
+    }
+    canUndo() {
+      return this._index > 0;
+    }
+    canRedo() {
+      return this._index < this._stack.length - 1;
+    }
+    current() {
+      return this._stack[this._index] || null;
+    }
+  };
+
+  // src/shared/caret.js
+  function getCaretPosition(el) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    const prefix = range.cloneRange();
+    prefix.selectNodeContents(el);
+    prefix.setEnd(range.endContainer, range.endOffset);
+    return prefix.toString().length;
+  }
+  function setCaretPosition(el, pos) {
+    const sel = window.getSelection();
+    let charCount = 0;
+    function traverse(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const nextCount = charCount + node.length;
+        if (pos <= nextCount) {
+          const range = document.createRange();
+          range.setStart(node, pos - charCount);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return true;
+        }
+        charCount = nextCount;
+      } else {
+        for (const child of node.childNodes) {
+          if (traverse(child)) return true;
+        }
+      }
+      return false;
+    }
+    traverse(el);
+  }
+  function getLineCol(text, pos) {
+    const before = text.substring(0, pos);
+    const lines = before.split("\n");
+    return { line: lines.length, col: lines[lines.length - 1].length + 1 };
+  }
+
+  // src/dialog/preview.js
   function renderHighlightedLine(charDiffs, type, colors, fullText = "") {
     const span = document.createElement("span");
     const changeRatio = getChangeRatio(charDiffs);
@@ -2252,7 +2262,7 @@ ${structure}\`\`\``;
       const oldLines = oldText.split("\n");
       const newLines = newText.split("\n");
       const lineDiffs = computeLineDiff(oldLines, newLines);
-      const colors = getDiffColors();
+      const colors = getDiffColors(detectTheme());
       const createSidePanel = (side, mode) => {
         const panel = document.createElement("div");
         Object.assign(panel.style, {
@@ -2904,41 +2914,6 @@ ${editedContent}
     closeBtn.onclick = closeAll;
     header.appendChild(titleText);
     header.appendChild(closeBtn);
-    const computeLineDiff2 = (oldLines2, newLines2) => {
-      const m = oldLines2.length, n = newLines2.length;
-      const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
-      for (let i2 = 0; i2 <= m; i2++) dp[i2][0] = i2;
-      for (let j2 = 0; j2 <= n; j2++) dp[0][j2] = j2;
-      for (let i2 = 1; i2 <= m; i2++) {
-        for (let j2 = 1; j2 <= n; j2++) {
-          if (oldLines2[i2 - 1] === newLines2[j2 - 1]) {
-            dp[i2][j2] = dp[i2 - 1][j2 - 1];
-          } else {
-            dp[i2][j2] = 1 + Math.min(dp[i2 - 1][j2], dp[i2][j2 - 1], dp[i2 - 1][j2 - 1]);
-          }
-        }
-      }
-      const diffs = [];
-      let i = m, j = n;
-      while (i > 0 || j > 0) {
-        if (i > 0 && j > 0 && oldLines2[i - 1] === newLines2[j - 1]) {
-          diffs.unshift({ type: "equal", oldLine: oldLines2[i - 1], newLine: newLines2[j - 1] });
-          i--;
-          j--;
-        } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
-          diffs.unshift({ type: "modify", oldLine: oldLines2[i - 1], newLine: newLines2[j - 1] });
-          i--;
-          j--;
-        } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
-          diffs.unshift({ type: "delete", oldLine: oldLines2[i - 1] });
-          i--;
-        } else {
-          diffs.unshift({ type: "insert", newLine: newLines2[j - 1] });
-          j--;
-        }
-      }
-      return diffs;
-    };
     const isDark = ((_a = document.body.style.backgroundColor) == null ? void 0 : _a.includes("rgb(")) || getComputedStyle(document.body).backgroundColor !== "rgb(255, 255, 255)";
     const colors = isDark ? {
       deleteBg: "#4b1818",
@@ -2957,7 +2932,7 @@ ${editedContent}
     };
     const oldLines = version.content.split("\n");
     const newLines = currentContent.split("\n");
-    const lineDiffs = computeLineDiff2(oldLines, newLines);
+    const lineDiffs = computeLineDiff(oldLines, newLines);
     const body = document.createElement("div");
     Object.assign(body.style, {
       flex: "1",
@@ -3068,48 +3043,6 @@ ${editedContent}
     container.appendChild(body);
     document.body.appendChild(backdrop);
     document.body.appendChild(container);
-  }
-
-  // src/editor/core.js
-  var UndoStack2 = class {
-    constructor(maxSize = 50) {
-      this._stack = [];
-      this._index = -1;
-      this._maxSize = maxSize;
-    }
-    push(state) {
-      this._stack = this._stack.slice(0, this._index + 1);
-      this._stack.push(state);
-      if (this._stack.length > this._maxSize) {
-        this._stack.shift();
-      } else {
-        this._index++;
-      }
-    }
-    undo() {
-      if (!this.canUndo()) return null;
-      this._index--;
-      return this._stack[this._index];
-    }
-    redo() {
-      if (!this.canRedo()) return null;
-      this._index++;
-      return this._stack[this._index];
-    }
-    canUndo() {
-      return this._index > 0;
-    }
-    canRedo() {
-      return this._index < this._stack.length - 1;
-    }
-    current() {
-      return this._stack[this._index] || null;
-    }
-  };
-  function getLineCol(text, pos) {
-    const before = text.substring(0, pos);
-    const lines = before.split("\n");
-    return { line: lines.length, col: lines[lines.length - 1].length + 1 };
   }
 
   // src/editor/languages.js
@@ -4541,7 +4474,7 @@ ${editedContent}
     }
     const fileName = filePath.split("/").pop();
     const language = detectLanguage(fileName);
-    const undoStack = new UndoStack2();
+    const undoStack = new UndoStack();
     undoStack.push({ content, cursor: 0 });
     const foldingManager = createFoldingManager();
     let isComposing = false;

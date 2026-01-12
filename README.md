@@ -106,7 +106,10 @@ gemini-ide-bridge/
     ├── shared/            # 共享工具模块
     │   ├── utils.js       # 通用工具函数（Toast、Token 估算、语言检测）
     │   ├── theme.js       # 主题检测与 CSS 变量管理
-    │   └── prompt.js      # 系统提示词生成
+    │   ├── prompt.js      # 系统提示词生成
+    │   ├── diff.js        # Diff 算法（行级 + 字符级）、配色方案
+    │   ├── undo.js        # UndoStack 撤销/重做栈
+    │   └── caret.js       # 光标操作（contenteditable 光标管理）
     │
     ├── core/              # 核心功能模块
     │   ├── fs.js          # 文件系统操作（读写、创建、删除）
@@ -161,9 +164,12 @@ gemini-ide-bridge/
 ### shared/ - 共享工具
 | 文件 | 功能 |
 |------|------|
-| `utils.js` | Toast 通知、Token 数量估算、文件语言检测 |
+| `utils.js` | Toast 通知、Token 数量估算、文件语言检测、防抖函数 |
 | `theme.js` | 检测页面亮/暗主题，生成对应 CSS 变量 |
 | `prompt.js` | 系统提示词 + 交接摘要提示词 |
+| `diff.js` | Diff 算法（行级 + 字符级）、配色方案 |
+| `undo.js` | UndoStack 撤销/重做栈 |
+| `caret.js` | 光标操作（contenteditable 元素的光标管理） |
 
 ### core/ - 核心功能
 | 文件 | 功能 |
@@ -200,14 +206,15 @@ gemini-ide-bridge/
 |------|------|
 | `index.js` | 对话框模块入口 |
 | `editor.js` | 编辑器对话框入口（调用 editor 模块） |
-| `preview.js` | Side-by-Side Diff 预览对话框，行级 + 字符级差异高亮 |
+| `preview.js` | Side-by-Side Diff 预览对话框，支持编辑模式 |
+| `preview-edit.js` | 重新导出共享模块（向后兼容） |
 | `history.js` | 历史版本列表，支持预览和回退到指定版本 |
 
 ### editor/ - 内嵌编辑器（VSCode 风格）
 | 文件 | 功能 |
 |------|------|
 | `index.js` | 编辑器主入口，组装各组件，窗口拖拽/调整大小 |
-| `core.js` | 核心逻辑（UndoStack 撤销栈、光标位置计算） |
+| `core.js` | 重新导出共享模块（UndoStack、光标操作） |
 | `highlight.js` | 语法高亮（DOM tokenizer，绕过 Trusted Types） |
 | `languages.js` | 语言定义（30+ 语言关键字、字面量、内置函数） |
 | `minimap.js` | 小地图组件（Canvas 绘制，视口指示器可拖拽） |

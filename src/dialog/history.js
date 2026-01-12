@@ -4,6 +4,7 @@
 
 import { fs } from '../core/fs.js';
 import { showToast } from '../shared/utils.js';
+import { computeLineDiff } from '../shared/diff.js';
 
 function formatTime(timestamp) {
     const d = new Date(timestamp);
@@ -209,41 +210,6 @@ export function showHistoryDiff(filePath, version, currentContent) {
     
     header.appendChild(titleText);
     header.appendChild(closeBtn);
-
-    // Diff 算法（行级）
-    const computeLineDiff = (oldLines, newLines) => {
-        const m = oldLines.length, n = newLines.length;
-        const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
-        for (let i = 0; i <= m; i++) dp[i][0] = i;
-        for (let j = 0; j <= n; j++) dp[0][j] = j;
-        for (let i = 1; i <= m; i++) {
-            for (let j = 1; j <= n; j++) {
-                if (oldLines[i - 1] === newLines[j - 1]) {
-                    dp[i][j] = dp[i - 1][j - 1];
-                } else {
-                    dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-                }
-            }
-        }
-        const diffs = [];
-        let i = m, j = n;
-        while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-                diffs.unshift({ type: 'equal', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
-                i--; j--;
-            } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
-                diffs.unshift({ type: 'modify', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
-                i--; j--;
-            } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
-                diffs.unshift({ type: 'delete', oldLine: oldLines[i - 1] });
-                i--;
-            } else {
-                diffs.unshift({ type: 'insert', newLine: newLines[j - 1] });
-                j--;
-            }
-        }
-        return diffs;
-    };
 
     // 主题配色
     const isDark = document.body.style.backgroundColor?.includes('rgb(') || 
