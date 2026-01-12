@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T11:47:37.510Z
+ * 自动构建于 2026-01-12T11:51:13.767Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2369,6 +2369,60 @@ ${structure}\`\`\``;
         codeContainer.appendChild(lineNumbers);
         codeContainer.appendChild(codeArea);
         panel.appendChild(codeContainer);
+        const floatingBtn = document.createElement("button");
+        floatingBtn.textContent = "\u2728 \u8BE2\u95EE AI";
+        Object.assign(floatingBtn.style, {
+          position: "absolute",
+          padding: "4px 10px",
+          borderRadius: "4px",
+          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          color: "#fff",
+          border: "none",
+          fontSize: "12px",
+          cursor: "pointer",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+          display: "none",
+          zIndex: "10"
+        });
+        panel.style.position = "relative";
+        panel.appendChild(floatingBtn);
+        let hideTimeout = null;
+        codeContainer.addEventListener("mouseup", () => {
+          clearTimeout(hideTimeout);
+          const sel = window.getSelection();
+          const selectedText = sel.toString().trim();
+          if (selectedText.length > 0) {
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            floatingBtn.style.display = "block";
+            floatingBtn.style.left = `${rect.left - panelRect.left + rect.width / 2 - 40}px`;
+            floatingBtn.style.top = `${rect.top - panelRect.top - 30}px`;
+            floatingBtn.onclick = (e) => {
+              e.stopPropagation();
+              const prompt2 = `\u{1F4C4} \u6587\u4EF6: \`${file}\`
+
+**\u9009\u4E2D\u7684\u4EE3\u7801\u7247\u6BB5:**
+\`\`\`
+${selectedText}
+\`\`\`
+
+\u8BF7\u5E2E\u6211\u5206\u6790\u8FD9\u6BB5\u4EE3\u7801\uFF0C\u6216\u8005\u544A\u8BC9\u6211\u4F60\u60F3\u8BA9\u6211\u505A\u4EC0\u4E48\u3002`;
+              const result = insertToInput(prompt2);
+              if (result.success) {
+                showToast("\u5DF2\u53D1\u9001\u5230 Gemini");
+                floatingBtn.style.display = "none";
+              }
+            };
+          } else {
+            floatingBtn.style.display = "none";
+          }
+        });
+        codeContainer.addEventListener("mousedown", () => {
+          hideTimeout = setTimeout(() => {
+            floatingBtn.style.display = "none";
+          }, 200);
+        });
         return { panel, lineNumbers, codeArea };
       };
       const updateLineNumbers = (lineNumbersEl, content, baseLineNum) => {

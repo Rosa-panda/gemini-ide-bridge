@@ -639,6 +639,73 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             codeContainer.appendChild(lineNumbers);
             codeContainer.appendChild(codeArea);
             panel.appendChild(codeContainer);
+            
+            // 选中文本悬浮按钮
+            const floatingBtn = document.createElement('button');
+            floatingBtn.textContent = '✨ 询问 AI';
+            Object.assign(floatingBtn.style, {
+                position: 'absolute',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: '#fff',
+                border: 'none',
+                fontSize: '12px',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                display: 'none',
+                zIndex: '10'
+            });
+            panel.style.position = 'relative';
+            panel.appendChild(floatingBtn);
+            
+            // 监听选中文本
+            let hideTimeout = null;
+            codeContainer.addEventListener('mouseup', () => {
+                clearTimeout(hideTimeout);
+                const sel = window.getSelection();
+                const selectedText = sel.toString().trim();
+                
+                if (selectedText.length > 0) {
+                    // 获取选区位置
+                    const range = sel.getRangeAt(0);
+                    const rect = range.getBoundingClientRect();
+                    const panelRect = panel.getBoundingClientRect();
+                    
+                    // 定位按钮到选区上方
+                    floatingBtn.style.display = 'block';
+                    floatingBtn.style.left = `${rect.left - panelRect.left + rect.width / 2 - 40}px`;
+                    floatingBtn.style.top = `${rect.top - panelRect.top - 30}px`;
+                    
+                    // 点击发送选中内容
+                    floatingBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const prompt = `📄 文件: \`${file}\`
+
+**选中的代码片段:**
+\`\`\`
+${selectedText}
+\`\`\`
+
+请帮我分析这段代码，或者告诉我你想让我做什么。`;
+                        
+                        const result = insertToInput(prompt);
+                        if (result.success) {
+                            showToast('已发送到 Gemini');
+                            floatingBtn.style.display = 'none';
+                        }
+                    };
+                } else {
+                    floatingBtn.style.display = 'none';
+                }
+            });
+            
+            // 点击其他地方隐藏按钮（延迟，避免点击按钮时被隐藏）
+            codeContainer.addEventListener('mousedown', () => {
+                hideTimeout = setTimeout(() => {
+                    floatingBtn.style.display = 'none';
+                }, 200);
+            });
 
             return { panel, lineNumbers, codeArea };
         };
