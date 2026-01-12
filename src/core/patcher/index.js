@@ -19,13 +19,27 @@ export { detectLineEnding, restoreLineEnding };
 export { normalizeLineEnding };
 
 /**
+ * @typedef {Object} ReplaceResult
+ * @property {boolean} success - 是否成功
+ * @property {string} [content] - 替换后的内容
+ * @property {string} [error] - 错误信息
+ * @property {string} [reason] - 失败原因
+ * @property {number} [matchLine] - 匹配位置行号
+ * @property {number} [lineCount] - 匹配行数
+ * @property {number} [matchCount] - 匹配数量（多处匹配时）
+ * @property {boolean} [alreadyApplied] - 是否已应用
+ * @property {boolean} [isSyntaxError] - 是否语法错误
+ * @property {string} [errorDetails] - 语法错误详情
+ */
+
+/**
  * 安全的字符串替换（处理换行符差异）
  * 用于预览对话框中用户编辑后的内容替换
  * 
  * @param {string} content - 原始文件内容
  * @param {string} search - 要查找的内容
  * @param {string} replace - 替换内容
- * @returns {{success: boolean, content?: string, error?: string}}
+ * @returns {ReplaceResult}
  */
 export function safeReplace(content, search, replace) {
     // 标准化换行符
@@ -64,6 +78,12 @@ export function safeReplace(content, search, replace) {
  * 3. 语义掩码 - 保护多行字符串
  * 4. 语法自检 - 内置 JS/TS 括号匹配校验
  * 5. 换行符保持 - 记录并恢复原始风格
+ * 
+ * @param {string} content - 原始文件内容
+ * @param {string} search - SEARCH 块内容
+ * @param {string} replace - REPLACE 块内容
+ * @param {string} [filePath=''] - 文件路径（用于语言检测）
+ * @returns {ReplaceResult}
  */
 export function tryReplace(content, search, replace, filePath = '') {
     // 0. 记录原始换行符风格

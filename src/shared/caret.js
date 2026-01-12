@@ -4,6 +4,12 @@
  */
 
 /**
+ * @typedef {Object} LineCol
+ * @property {number} line - 行号（从1开始）
+ * @property {number} col - 列号（从1开始）
+ */
+
+/**
  * 获取光标位置
  * @param {HTMLElement} el - contenteditable 元素
  * @returns {number} 光标位置（字符偏移量）
@@ -54,7 +60,7 @@ export function setCaretPosition(el, pos) {
  * 获取当前行列号
  * @param {string} text - 文本内容
  * @param {number} pos - 光标位置
- * @returns {{line: number, col: number}} 行列号（从1开始）
+ * @returns {LineCol} 行列号
  */
 export function getLineCol(text, pos) {
     const before = text.substring(0, pos);

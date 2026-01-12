@@ -2,6 +2,11 @@
  * 工具函数模块
  */
 
+/**
+ * 根据文件名获取语言标识
+ * @param {string} filename - 文件名
+ * @returns {string} 语言标识（如 'javascript', 'python'）
+ */
 export function getLanguage(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const map = {
@@ -16,6 +21,11 @@ export function getLanguage(filename) {
     return map[ext] || 'text';
 }
 
+/**
+ * 估算文本的 Token 数量（中英文混合）
+ * @param {string} text - 文本内容
+ * @returns {number} 估算的 Token 数
+ */
 export function estimateTokens(text) {
     if (!text) return 0;
     const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -23,6 +33,11 @@ export function estimateTokens(text) {
     return Math.ceil(chineseChars / 1.5 + otherChars / 3.5);
 }
 
+/**
+ * 格式化 Token 数量显示
+ * @param {number} count - Token 数量
+ * @returns {string} 格式化后的字符串（如 '1.5k'）
+ */
 export function formatTokens(count) {
     if (count >= 1000) {
         return (count / 1000).toFixed(1) + 'k';
@@ -31,8 +46,11 @@ export function formatTokens(count) {
 }
 
 /**
-* 防抖函数 - 限制高频事件触发
-*/
+ * 防抖函数 - 限制高频事件触发
+ * @param {Function} func - 要防抖的函数
+ * @param {number} wait - 等待时间（毫秒）
+ * @returns {Function} 防抖后的函数
+ */
 export function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -43,6 +61,11 @@ export function debounce(func, wait) {
 
 let activeToasts = [];
 
+/**
+ * 显示 Toast 通知
+ * @param {string} message - 消息内容
+ * @param {'success'|'error'|'info'} [type='success'] - 消息类型
+ */
 export function showToast(message, type = 'success') {
     const MAX_TOASTS = 5;
     const TOAST_GAP = 12;

@@ -3,7 +3,36 @@
  */
 
 /**
+ * @typedef {Object} SearchReplacePatch
+ * @property {string|null} file - 文件路径
+ * @property {string} search - SEARCH 块内容
+ * @property {string} replace - REPLACE 块内容
+ * @property {boolean} isDelete - 是否为删除操作
+ */
+
+/**
+ * @typedef {Object} DeleteInstruction
+ * @property {string} file - 要删除的文件路径
+ */
+
+/**
+ * @typedef {Object} ReadInstruction
+ * @property {string} file - 文件路径
+ * @property {number|null} startLine - 起始行号
+ * @property {number|null} endLine - 结束行号
+ */
+
+/**
+ * @typedef {Object} FileBlock
+ * @property {string} path - 文件路径
+ * @property {string} content - 文件内容
+ * @property {boolean} isOverwrite - 是否覆盖模式
+ */
+
+/**
  * 提取文件路径 (支持 [OVERWRITE] 标记)
+ * @param {string} text - 代码块文本
+ * @returns {string|null} 文件路径
  */
 export function extractFilePath(text) {
     const patterns = [
@@ -22,6 +51,8 @@ export function extractFilePath(text) {
 
 /**
  * 检测是否为 OVERWRITE 模式
+ * @param {string} text - 代码块文本
+ * @returns {boolean}
  */
 export function isOverwriteMode(text) {
     return /FILE:\s*.+?\s*\[OVERWRITE\]/i.test(text);
@@ -29,6 +60,8 @@ export function isOverwriteMode(text) {
 
 /**
  * 解析 DELETE 块
+ * @param {string} text - 代码块文本
+ * @returns {DeleteInstruction[]}
  */
 export function parseDelete(text) {
     const deletes = [];
@@ -47,10 +80,8 @@ export function parseDelete(text) {
 
 /**
  * 解析 READ 块（请求读取文件片段）
- * 支持多种格式：
- * - <<<<<<< READ [path] 50-100
- * - <<<<<<< READ [path]
- * - 同一行多个 READ
+ * @param {string} text - 代码块文本
+ * @returns {ReadInstruction[]}
  */
 export function parseRead(text) {
     const reads = [];
@@ -71,9 +102,8 @@ export function parseRead(text) {
 
 /**
  * 解析 SEARCH/REPLACE 块（支持空 replace 表示删除）
- * 支持两种格式：
- * - <<<<<<< SEARCH [path/to/file]
- * - <<<<<<< SEARCH path/to/file
+ * @param {string} text - 代码块文本
+ * @returns {SearchReplacePatch[]}
  */
 export function parseSearchReplace(text) {
     const patches = [];
@@ -104,6 +134,8 @@ export function parseSearchReplace(text) {
 
 /**
  * 清理代码内容 (移除 FILE: 注释)
+ * @param {string} text - 代码块文本
+ * @returns {string} 清理后的内容
  */
 export function cleanContent(text) {
     return text
@@ -116,6 +148,8 @@ export function cleanContent(text) {
 
 /**
  * 解析多个 FILE: 块（批量创建/覆盖）
+ * @param {string} text - 代码块文本
+ * @returns {FileBlock[]}
  */
 export function parseMultipleFiles(text) {
     const files = [];

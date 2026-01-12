@@ -5,10 +5,38 @@
  */
 
 /**
+ * @typedef {Object} LineDiff
+ * @property {'equal'|'delete'|'insert'|'modify'} type - 差异类型
+ * @property {string} [oldLine] - 原始行内容
+ * @property {string} [newLine] - 新行内容
+ */
+
+/**
+ * @typedef {Object} CharDiff
+ * @property {'equal'|'delete'|'insert'} type - 差异类型
+ * @property {string} value - 字符内容
+ */
+
+/**
+ * @typedef {Object} DiffColors
+ * @property {string} deleteBg - 删除行背景色
+ * @property {string} deleteText - 删除行文字色
+ * @property {string} deleteCharBg - 删除字符背景色
+ * @property {string} deleteCharText - 删除字符文字色
+ * @property {string} insertBg - 新增行背景色
+ * @property {string} insertText - 新增行文字色
+ * @property {string} insertCharBg - 新增字符背景色
+ * @property {string} insertCharText - 新增字符文字色
+ * @property {string} modifyBg - 修改行背景色
+ * @property {string} emptyBg - 空白行背景色
+ * @property {string} equalOpacity - 相同行透明度
+ */
+
+/**
  * 行级 Diff - 计算两个文本的行级差异
  * @param {string[]} oldLines - 原始文本的行数组
  * @param {string[]} newLines - 新文本的行数组
- * @returns {Array} 差异数组，每项包含 {type: 'equal'|'delete'|'insert'|'modify', oldLine?, newLine?}
+ * @returns {LineDiff[]} 差异数组
  */
 export function computeLineDiff(oldLines, newLines) {
     const m = oldLines.length;
@@ -69,7 +97,7 @@ export function computeLineDiff(oldLines, newLines) {
  * 字符级 Diff - 用于高亮修改行内的具体差异
  * @param {string} oldText - 原始文本
  * @param {string} newText - 新文本
- * @returns {Array} 差异数组，每项包含 {type: 'equal'|'delete'|'insert', value}
+ * @returns {CharDiff[]} 差异数组
  */
 export function computeCharDiff(oldText, newText) {
     // 使用 Array.from 处理 Unicode 代理对，防止中文/Emoji 乱码
@@ -115,7 +143,7 @@ export function computeCharDiff(oldText, newText) {
 
 /**
  * 计算字符级差异的变化比例
- * @param {Array} charDiffs - 字符级差异数组
+ * @param {CharDiff[]} charDiffs - 字符级差异数组
  * @returns {number} 变化比例 (0-1)
  */
 export function getChangeRatio(charDiffs) {
@@ -131,8 +159,8 @@ export function getChangeRatio(charDiffs) {
 
 /**
  * 获取主题相关的 Diff 配色方案
- * @param {string} theme - 'light' 或 'dark'
- * @returns {Object} 包含各种状态的颜色配置
+ * @param {'light'|'dark'} theme - 主题类型
+ * @returns {DiffColors} 配色方案
  */
 export function getDiffColors(theme) {
     if (theme === 'light') {
