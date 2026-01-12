@@ -14,6 +14,8 @@ import { showToast } from '../shared/utils.js';
 import { computeLineDiff, computeCharDiff, getChangeRatio, getDiffColors } from '../shared/diff.js';
 import { UndoStack } from '../shared/undo.js';
 import { getCaretPosition, setCaretPosition } from '../shared/caret.js';
+import { CODE_FONT } from '../shared/code-style.js';
+import { makeDraggable } from '../shared/draggable.js';
 
 
 
@@ -108,20 +110,22 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             color: 'var(--ide-text)',
             border: '1px solid var(--ide-border)',
             borderRadius: '12px', 
-            padding: '24px', 
             zIndex: '2147483649',
             width: '90vw', maxWidth: '1400px', height: '85vh',
             display: 'flex', flexDirection: 'column',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-            animation: 'ideScaleIn 0.2s ease-out'
+            animation: 'ideScaleIn 0.2s ease-out',
+            overflow: 'hidden'  // 防止内容溢出
         });
 
-        // 头部
+        // 头部（固定高度）
         const header = document.createElement('div');
         Object.assign(header.style, {
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: syntaxError ? '12px' : '20px', paddingBottom: '16px',
-            borderBottom: '1px solid var(--ide-border)'
+            padding: '12px 20px',
+            borderBottom: '1px solid var(--ide-border)',
+            flexShrink: '0',  // 不压缩
+            cursor: 'move'    // 拖拽光标
         });
         
         const titleGroup = document.createElement('div');
@@ -180,10 +184,53 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             redoBtn.style.opacity = undoStack.canRedo() ? '1' : '0.4';
         };
         
+        // 字体缩放按钮
+        const fontSmallBtn = document.createElement('button');
+        fontSmallBtn.textContent = 'A-';
+        fontSmallBtn.title = '缩小字体';
+        const fontLargeBtn = document.createElement('button');
+        fontLargeBtn.textContent = 'A+';
+        fontLargeBtn.title = '放大字体';
+        
+        [fontSmallBtn, fontLargeBtn].forEach(btn => {
+            Object.assign(btn.style, {
+                padding: '4px 8px', borderRadius: '4px', cursor: 'pointer',
+                border: '1px solid var(--ide-border)', fontSize: '10px',
+                background: 'transparent', color: 'var(--ide-text)'
+            });
+        });
+        
+        // 当前字体大小（从 CODE_FONT 获取默认值）
+        let currentFontSize = parseInt(CODE_FONT.size);
+        const minFontSize = 12, maxFontSize = 20;
+        
+        // 更新所有代码区域的字体大小
+        const updateFontSize = () => {
+            const codeContainers = dialog.querySelectorAll('[style*="monospace"]');
+            codeContainers.forEach(el => {
+                el.style.fontSize = `${currentFontSize}px`;
+            });
+        };
+        
+        fontSmallBtn.onclick = () => {
+            if (currentFontSize > minFontSize) {
+                currentFontSize--;
+                updateFontSize();
+            }
+        };
+        fontLargeBtn.onclick = () => {
+            if (currentFontSize < maxFontSize) {
+                currentFontSize++;
+                updateFontSize();
+            }
+        };
+        
         modeGroup.appendChild(diffModeBtn);
         modeGroup.appendChild(editModeBtn);
         modeGroup.appendChild(undoBtn);
         modeGroup.appendChild(redoBtn);
+        modeGroup.appendChild(fontSmallBtn);
+        modeGroup.appendChild(fontLargeBtn);
         
         header.appendChild(titleGroup);
         header.appendChild(modeGroup);
@@ -220,11 +267,12 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             dialog.appendChild(warningBanner);
         }
 
-        // Diff 内容区（Side-by-Side）
+        // Diff 内容区（Side-by-Side，填充中间区域）
         const diffBody = document.createElement('div');
         Object.assign(diffBody.style, {
             flex: '1', display: 'flex', gap: '0', 
             overflow: 'hidden', minHeight: '0',
+            margin: '0 20px',
             border: '1px solid var(--ide-border)',
             borderRadius: '8px'
         });
@@ -268,8 +316,9 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             const codeContainer = document.createElement('div');
             Object.assign(codeContainer.style, {
                 flex: '1', display: 'flex', overflow: 'auto',
-                fontFamily: '"JetBrains Mono", Consolas, monospace',
-                fontSize: '13px', lineHeight: '1.6'
+                fontFamily: CODE_FONT.family,
+                fontSize: CODE_FONT.size,
+                lineHeight: CODE_FONT.lineHeight
             });
 
             // 行号列
@@ -657,12 +706,13 @@ ${selectedText}
         // 初始渲染 diff 模式
         renderContent('diff');
 
-        // 底部按钮
+        // 底部按钮（固定高度）
         const footer = document.createElement('div');
         Object.assign(footer.style, {
             display: 'flex', justifyContent: 'flex-end', gap: '12px',
-            marginTop: '20px', paddingTop: '16px',
-            borderTop: '1px solid var(--ide-border)'
+            padding: '12px 20px',
+            borderTop: '1px solid var(--ide-border)',
+            flexShrink: '0'  // 不压缩
         });
 
         const closeAll = () => { backdrop.remove(); dialog.remove(); };
@@ -734,5 +784,26 @@ ${editedContent}
 
         document.body.appendChild(backdrop);
         document.body.appendChild(dialog);
+        
+        // 使对话框可拖拽和调整大小
+        const cleanupDraggable = makeDraggable(dialog, header, {
+            dialogId: 'preview',
+            minWidth: 600,
+            minHeight: 400
+        });
+        
+        // 修改 closeAll 以清理事件监听
+        const originalCloseAll = closeAll;
+        const closeAllWithCleanup = () => {
+            cleanupDraggable();
+            originalCloseAll();
+        };
+        
+        // 点击背景关闭
+        backdrop.onclick = () => { closeAllWithCleanup(); resolve({ confirmed: false }); };
+        
+        // 更新按钮的 onclick
+        cancelBtn.onclick = () => { closeAllWithCleanup(); resolve({ confirmed: false }); };
+        confirmBtn.onclick = () => { closeAllWithCleanup(); resolve({ confirmed: true, content: editedContent }); };
     });
 }

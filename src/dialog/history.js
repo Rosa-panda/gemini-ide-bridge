@@ -5,6 +5,8 @@
 import { fs } from '../core/fs.js';
 import { showToast } from '../shared/utils.js';
 import { computeLineDiff } from '../shared/diff.js';
+import { CODE_FONT } from '../shared/code-style.js';
+import { makeDraggable } from '../shared/draggable.js';
 
 function formatTime(timestamp) {
     const d = new Date(timestamp);
@@ -48,16 +50,22 @@ export function showHistoryDialog(filePath) {
             position: 'fixed', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
             background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
-            borderRadius: '12px', padding: '20px', zIndex: '2147483649',
-            width: '400px', maxHeight: '60vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', animation: 'ideScaleIn 0.2s ease-out'
+            borderRadius: '12px', zIndex: '2147483649',
+            width: '400px', maxHeight: '60vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', animation: 'ideScaleIn 0.2s ease-out',
+            overflow: 'hidden'  // 防止内容溢出
         });
         dialog.onclick = (e) => e.stopPropagation();
 
+        // 头部（固定高度）
         const header = document.createElement('div');
         Object.assign(header.style, {
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--ide-border)'
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--ide-border)',
+            flexShrink: '0',  // 不压缩
+            cursor: 'move'    // 拖拽光标
         });
         
         const title = document.createElement('span');
@@ -80,7 +88,12 @@ export function showHistoryDialog(filePath) {
         dialog.appendChild(header);
 
         const list = document.createElement('div');
-        Object.assign(list.style, { flex: '1', overflowY: 'auto', paddingRight: '4px' });
+        Object.assign(list.style, { 
+            flex: '1', 
+            overflowY: 'auto', 
+            padding: '8px 16px',
+            minHeight: '0'  // 允许收缩
+        });
 
         versions.forEach((v) => {
             const item = document.createElement('div');
@@ -156,6 +169,18 @@ export function showHistoryDialog(filePath) {
 
         document.body.appendChild(backdrop);
         document.body.appendChild(dialog);
+        
+        // 使对话框可拖拽和调整大小
+        const cleanupDraggable = makeDraggable(dialog, header, {
+            dialogId: 'history-list',
+            minWidth: 350,
+            minHeight: 300
+        });
+        
+        // 更新 closeAll 以清理事件监听
+        const originalCloseAll = closeAll;
+        backdrop.onclick = () => { cleanupDraggable(); originalCloseAll(); };
+        closeBtn.onclick = () => { cleanupDraggable(); originalCloseAll(); };
     });
 }
 
@@ -178,24 +203,53 @@ export function showHistoryDiff(filePath, version, currentContent) {
     Object.assign(container.style, {
         position: 'fixed', top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
-        width: '90vw', maxWidth: '1200px', height: '85vh',
+        width: '90vw', height: '85vh',
         background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
         borderRadius: '12px', display: 'flex', flexDirection: 'column',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', zIndex: '2147483651',
-        animation: 'ideScaleIn 0.2s ease-out'
+        animation: 'ideScaleIn 0.2s ease-out',
+        overflow: 'hidden'  // 防止内容溢出
     });
     // 阻止点击容器时关闭
     container.onclick = (e) => e.stopPropagation();
 
+    // 当前字体大小
+    let currentFontSize = parseInt(CODE_FONT.size);
+    const minFontSize = 12, maxFontSize = 20;
+
+    // 头部（固定高度）
     const header = document.createElement('div');
     Object.assign(header.style, {
-        padding: '16px 24px', borderBottom: '1px solid var(--ide-border)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        padding: '12px 20px',
+        borderBottom: '1px solid var(--ide-border)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexShrink: '0',  // 不压缩
+        cursor: 'move'    // 拖拽光标
     });
 
     const titleText = document.createElement('div');
     titleText.textContent = `🆚 版本对比: ${filePath.split('/').pop()}`;
     Object.assign(titleText.style, { fontWeight: '600', color: 'var(--ide-text)', fontSize: '16px' });
+    
+    // 右侧控制按钮组
+    const controls = document.createElement('div');
+    Object.assign(controls.style, { display: 'flex', gap: '8px', alignItems: 'center' });
+    
+    // 字体缩放按钮
+    const fontSmallBtn = document.createElement('button');
+    fontSmallBtn.textContent = 'A-';
+    fontSmallBtn.title = '缩小字体';
+    const fontLargeBtn = document.createElement('button');
+    fontLargeBtn.textContent = 'A+';
+    fontLargeBtn.title = '放大字体';
+    
+    [fontSmallBtn, fontLargeBtn].forEach(btn => {
+        Object.assign(btn.style, {
+            padding: '4px 8px', borderRadius: '4px', cursor: 'pointer',
+            border: '1px solid var(--ide-border)', fontSize: '10px',
+            background: 'transparent', color: 'var(--ide-text)'
+        });
+    });
     
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
@@ -208,8 +262,12 @@ export function showHistoryDiff(filePath, version, currentContent) {
     closeBtn.onmouseout = () => closeBtn.style.color = 'var(--ide-text-secondary)';
     closeBtn.onclick = closeAll;
     
+    controls.appendChild(fontSmallBtn);
+    controls.appendChild(fontLargeBtn);
+    controls.appendChild(closeBtn);
+    
     header.appendChild(titleText);
-    header.appendChild(closeBtn);
+    header.appendChild(controls);
 
     // 主题配色
     const isDark = document.body.style.backgroundColor?.includes('rgb(') || 
@@ -233,6 +291,28 @@ export function showHistoryDiff(filePath, version, currentContent) {
     Object.assign(body.style, {
         flex: '1', display: 'flex', overflow: 'hidden'
     });
+    
+    // 更新字体大小的函数
+    const updateFontSize = () => {
+        const codeContainers = body.querySelectorAll('[style*="monospace"]');
+        codeContainers.forEach(el => {
+            el.style.fontSize = `${currentFontSize}px`;
+        });
+    };
+    
+    // 绑定字体按钮事件
+    fontSmallBtn.onclick = () => {
+        if (currentFontSize > minFontSize) {
+            currentFontSize--;
+            updateFontSize();
+        }
+    };
+    fontLargeBtn.onclick = () => {
+        if (currentFontSize < maxFontSize) {
+            currentFontSize++;
+            updateFontSize();
+        }
+    };
 
     // 创建面板
     const createPane = (side) => {
@@ -257,8 +337,9 @@ export function showHistoryDiff(filePath, version, currentContent) {
         const codeContainer = document.createElement('div');
         Object.assign(codeContainer.style, {
             flex: '1', display: 'flex', overflow: 'auto',
-            fontFamily: '"JetBrains Mono", Consolas, monospace',
-            fontSize: '13px', lineHeight: '1.6'
+            fontFamily: CODE_FONT.family,
+            fontSize: CODE_FONT.size,
+            lineHeight: CODE_FONT.lineHeight
         });
 
         const lineNumbers = document.createElement('div');
@@ -286,8 +367,11 @@ export function showHistoryDiff(filePath, version, currentContent) {
     const leftPane = createPane('left');
     const rightPane = createPane('right');
 
-    // 渲染 diff
+    // 渲染 diff（带连续行折叠）
     let leftLineNum = 1, rightLineNum = 1;
+    let lastWasInsert = false;  // 追踪上一行是否是 insert
+    let lastWasDelete = false;  // 追踪上一行是否是 delete
+    
     lineDiffs.forEach(diff => {
         const leftLineDiv = document.createElement('div');
         const rightLineDiv = document.createElement('div');
@@ -301,22 +385,54 @@ export function showHistoryDiff(filePath, version, currentContent) {
             rightCodeDiv.textContent = diff.newLine;
             leftCodeDiv.style.opacity = colors.equalOpacity;
             rightCodeDiv.style.opacity = colors.equalOpacity;
+            lastWasInsert = false;
+            lastWasDelete = false;
         } else if (diff.type === 'delete') {
+            // 左边正常显示删除行
             leftLineDiv.textContent = String(leftLineNum++);
-            rightLineDiv.textContent = '';
             leftCodeDiv.textContent = diff.oldLine;
             leftCodeDiv.style.backgroundColor = colors.deleteBg;
             leftCodeDiv.style.color = colors.deleteText;
-            rightCodeDiv.style.backgroundColor = colors.emptyBg;
-            rightCodeDiv.style.minHeight = '1.6em';
+            
+            // 右边：连续 delete 只显示一行提示
+            if (!lastWasDelete) {
+                rightLineDiv.textContent = '...';
+                rightLineDiv.style.color = 'var(--ide-text-secondary)';
+                rightLineDiv.style.fontSize = '10px';
+                rightCodeDiv.textContent = '// ↑ 删除内容';
+                rightCodeDiv.style.color = 'var(--ide-text-secondary)';
+                rightCodeDiv.style.fontStyle = 'italic';
+                rightCodeDiv.style.backgroundColor = colors.emptyBg;
+            } else {
+                // 连续 delete，右边不添加任何内容
+                rightLineDiv.style.display = 'none';
+                rightCodeDiv.style.display = 'none';
+            }
+            lastWasDelete = true;
+            lastWasInsert = false;
         } else if (diff.type === 'insert') {
-            leftLineDiv.textContent = '';
+            // 右边正常显示新增行
             rightLineDiv.textContent = String(rightLineNum++);
-            leftCodeDiv.style.backgroundColor = colors.emptyBg;
-            leftCodeDiv.style.minHeight = '1.6em';
             rightCodeDiv.textContent = diff.newLine;
             rightCodeDiv.style.backgroundColor = colors.insertBg;
             rightCodeDiv.style.color = colors.insertText;
+            
+            // 左边：连续 insert 只显示一行提示
+            if (!lastWasInsert) {
+                leftLineDiv.textContent = '...';
+                leftLineDiv.style.color = 'var(--ide-text-secondary)';
+                leftLineDiv.style.fontSize = '10px';
+                leftCodeDiv.textContent = '// ↓ 新增内容';
+                leftCodeDiv.style.color = 'var(--ide-text-secondary)';
+                leftCodeDiv.style.fontStyle = 'italic';
+                leftCodeDiv.style.backgroundColor = colors.emptyBg;
+            } else {
+                // 连续 insert，左边不添加任何内容
+                leftLineDiv.style.display = 'none';
+                leftCodeDiv.style.display = 'none';
+            }
+            lastWasInsert = true;
+            lastWasDelete = false;
         } else if (diff.type === 'modify') {
             leftLineDiv.textContent = String(leftLineNum++);
             rightLineDiv.textContent = String(rightLineNum++);
@@ -326,6 +442,8 @@ export function showHistoryDiff(filePath, version, currentContent) {
             leftCodeDiv.style.color = colors.deleteText;
             rightCodeDiv.style.backgroundColor = colors.insertBg;
             rightCodeDiv.style.color = colors.insertText;
+            lastWasInsert = false;
+            lastWasDelete = false;
         }
 
         leftPane.lineNumbers.appendChild(leftLineDiv);
@@ -341,4 +459,16 @@ export function showHistoryDiff(filePath, version, currentContent) {
 
     document.body.appendChild(backdrop);
     document.body.appendChild(container);
+    
+    // 使对话框可拖拽和调整大小
+    const cleanupDraggable = makeDraggable(container, header, {
+        dialogId: 'history-diff',
+        minWidth: 600,
+        minHeight: 400
+    });
+    
+    // 更新 closeAll 以清理事件监听
+    const originalCloseAll = closeAll;
+    backdrop.onclick = () => { cleanupDraggable(); originalCloseAll(); };
+    closeBtn.onclick = () => { cleanupDraggable(); originalCloseAll(); };
 }

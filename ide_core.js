@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T14:52:33.350Z
+ * 自动构建于 2026-01-12T15:48:32.240Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2101,6 +2101,165 @@ ${structure}\`\`\``;
     return { line: lines.length, col: lines[lines.length - 1].length + 1 };
   }
 
+  // src/shared/code-style.js
+  var CODE_FONT = {
+    family: '"JetBrains Mono", Consolas, monospace',
+    size: "15px",
+    lineHeight: "1.5"
+  };
+
+  // src/shared/draggable.js
+  var STORAGE_PREFIX = "ide-dialog-";
+  function injectResizeStyles() {
+    if (document.getElementById("ide-resize-styles")) return;
+    const style = document.createElement("style");
+    style.id = "ide-resize-styles";
+    style.textContent = `
+        .ide-resize-edge {
+            position: absolute;
+            z-index: 10;
+        }
+        .ide-resize-n, .ide-resize-s { left: 0; right: 0; height: 6px; cursor: ns-resize; }
+        .ide-resize-e, .ide-resize-w { top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+        .ide-resize-n { top: -3px; }
+        .ide-resize-s { bottom: -3px; }
+        .ide-resize-e { right: -3px; }
+        .ide-resize-w { left: -3px; }
+        .ide-resize-ne, .ide-resize-nw, .ide-resize-se, .ide-resize-sw {
+            width: 12px; height: 12px;
+        }
+        .ide-resize-ne { top: -3px; right: -3px; cursor: nesw-resize; }
+        .ide-resize-nw { top: -3px; left: -3px; cursor: nwse-resize; }
+        .ide-resize-se { bottom: -3px; right: -3px; cursor: nwse-resize; }
+        .ide-resize-sw { bottom: -3px; left: -3px; cursor: nesw-resize; }
+    `;
+    document.head.appendChild(style);
+  }
+  function makeDraggable(dialog, dragHandle, options = {}) {
+    const {
+      dialogId = null,
+      minWidth = 400,
+      minHeight = 300,
+      onResize = null
+    } = options;
+    injectResizeStyles();
+    const edges = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+    edges.forEach((edge) => {
+      const handle = document.createElement("div");
+      handle.className = `ide-resize-edge ide-resize-${edge}`;
+      handle.dataset.edge = edge;
+      dialog.appendChild(handle);
+    });
+    let isDragging = false;
+    let resizeEdge = null;
+    let dragOffset = { x: 0, y: 0 };
+    let resizeStart = { x: 0, y: 0, w: 0, h: 0, top: 0, left: 0 };
+    let initialized = false;
+    const initPosition = () => {
+      if (initialized) return;
+      initialized = true;
+      const rect = dialog.getBoundingClientRect();
+      dialog.style.top = `${rect.top}px`;
+      dialog.style.left = `${rect.left}px`;
+      dialog.style.width = `${rect.width}px`;
+      dialog.style.height = `${rect.height}px`;
+      dialog.style.transform = "none";
+    };
+    const handleDragStart = (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      initPosition();
+      isDragging = true;
+      const rect = dialog.getBoundingClientRect();
+      dragOffset.x = e.clientX - rect.left;
+      dragOffset.y = e.clientY - rect.top;
+    };
+    const handleResizeStart = (e) => {
+      var _a;
+      const edge = (_a = e.target.dataset) == null ? void 0 : _a.edge;
+      if (!edge) return;
+      initPosition();
+      resizeEdge = edge;
+      const rect = dialog.getBoundingClientRect();
+      resizeStart = {
+        x: e.clientX,
+        y: e.clientY,
+        w: rect.width,
+        h: rect.height,
+        top: rect.top,
+        left: rect.left
+      };
+      e.preventDefault();
+    };
+    const handleMouseMove = (e) => {
+      if (isDragging) {
+        dialog.style.left = `${e.clientX - dragOffset.x}px`;
+        dialog.style.top = `${e.clientY - dragOffset.y}px`;
+      }
+      if (resizeEdge) {
+        const dx = e.clientX - resizeStart.x;
+        const dy = e.clientY - resizeStart.y;
+        if (resizeEdge.includes("e")) {
+          dialog.style.width = `${Math.max(minWidth, resizeStart.w + dx)}px`;
+        }
+        if (resizeEdge.includes("w")) {
+          const newW = Math.max(minWidth, resizeStart.w - dx);
+          dialog.style.width = `${newW}px`;
+          dialog.style.left = `${resizeStart.left + resizeStart.w - newW}px`;
+        }
+        if (resizeEdge.includes("s")) {
+          dialog.style.height = `${Math.max(minHeight, resizeStart.h + dy)}px`;
+        }
+        if (resizeEdge.includes("n")) {
+          const newH = Math.max(minHeight, resizeStart.h - dy);
+          dialog.style.height = `${newH}px`;
+          dialog.style.top = `${resizeStart.top + resizeStart.h - newH}px`;
+        }
+        if (onResize) onResize();
+      }
+    };
+    const handleMouseUp = () => {
+      if ((isDragging || resizeEdge) && dialogId) {
+        try {
+          const rect = dialog.getBoundingClientRect();
+          localStorage.setItem(STORAGE_PREFIX + dialogId, JSON.stringify({
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
+          }));
+        } catch (e) {
+        }
+      }
+      isDragging = false;
+      resizeEdge = null;
+    };
+    if (dialogId) {
+      try {
+        const saved = localStorage.getItem(STORAGE_PREFIX + dialogId);
+        if (saved) {
+          const bounds = JSON.parse(saved);
+          dialog.style.top = `${bounds.top}px`;
+          dialog.style.left = `${bounds.left}px`;
+          dialog.style.width = `${bounds.width}px`;
+          dialog.style.height = `${bounds.height}px`;
+          dialog.style.transform = "none";
+          initialized = true;
+        }
+      } catch (e) {
+      }
+    }
+    dragHandle.addEventListener("mousedown", handleDragStart);
+    dialog.addEventListener("mousedown", handleResizeStart);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      dragHandle.removeEventListener("mousedown", handleDragStart);
+      dialog.removeEventListener("mousedown", handleResizeStart);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }
+
   // src/dialog/preview.js
   function renderHighlightedLine(charDiffs, type, colors, fullText = "") {
     const span = document.createElement("span");
@@ -2163,7 +2322,6 @@ ${structure}\`\`\``;
         color: "var(--ide-text)",
         border: "1px solid var(--ide-border)",
         borderRadius: "12px",
-        padding: "24px",
         zIndex: "2147483649",
         width: "90vw",
         maxWidth: "1400px",
@@ -2171,16 +2329,21 @@ ${structure}\`\`\``;
         display: "flex",
         flexDirection: "column",
         boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-        animation: "ideScaleIn 0.2s ease-out"
+        animation: "ideScaleIn 0.2s ease-out",
+        overflow: "hidden"
+        // 防止内容溢出
       });
       const header = document.createElement("div");
       Object.assign(header.style, {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: syntaxError ? "12px" : "20px",
-        paddingBottom: "16px",
-        borderBottom: "1px solid var(--ide-border)"
+        padding: "12px 20px",
+        borderBottom: "1px solid var(--ide-border)",
+        flexShrink: "0",
+        // 不压缩
+        cursor: "move"
+        // 拖拽光标
       });
       const titleGroup = document.createElement("div");
       const titleIcon = document.createElement("span");
@@ -2235,10 +2398,49 @@ ${structure}\`\`\``;
         undoBtn.style.opacity = undoStack.canUndo() ? "1" : "0.4";
         redoBtn.style.opacity = undoStack.canRedo() ? "1" : "0.4";
       };
+      const fontSmallBtn = document.createElement("button");
+      fontSmallBtn.textContent = "A-";
+      fontSmallBtn.title = "\u7F29\u5C0F\u5B57\u4F53";
+      const fontLargeBtn = document.createElement("button");
+      fontLargeBtn.textContent = "A+";
+      fontLargeBtn.title = "\u653E\u5927\u5B57\u4F53";
+      [fontSmallBtn, fontLargeBtn].forEach((btn) => {
+        Object.assign(btn.style, {
+          padding: "4px 8px",
+          borderRadius: "4px",
+          cursor: "pointer",
+          border: "1px solid var(--ide-border)",
+          fontSize: "10px",
+          background: "transparent",
+          color: "var(--ide-text)"
+        });
+      });
+      let currentFontSize = parseInt(CODE_FONT.size);
+      const minFontSize = 12, maxFontSize = 20;
+      const updateFontSize = () => {
+        const codeContainers = dialog.querySelectorAll('[style*="monospace"]');
+        codeContainers.forEach((el) => {
+          el.style.fontSize = `${currentFontSize}px`;
+        });
+      };
+      fontSmallBtn.onclick = () => {
+        if (currentFontSize > minFontSize) {
+          currentFontSize--;
+          updateFontSize();
+        }
+      };
+      fontLargeBtn.onclick = () => {
+        if (currentFontSize < maxFontSize) {
+          currentFontSize++;
+          updateFontSize();
+        }
+      };
       modeGroup.appendChild(diffModeBtn);
       modeGroup.appendChild(editModeBtn);
       modeGroup.appendChild(undoBtn);
       modeGroup.appendChild(redoBtn);
+      modeGroup.appendChild(fontSmallBtn);
+      modeGroup.appendChild(fontLargeBtn);
       header.appendChild(titleGroup);
       header.appendChild(modeGroup);
       dialog.appendChild(header);
@@ -2274,6 +2476,7 @@ ${structure}\`\`\``;
         gap: "0",
         overflow: "hidden",
         minHeight: "0",
+        margin: "0 20px",
         border: "1px solid var(--ide-border)",
         borderRadius: "8px"
       });
@@ -2310,9 +2513,9 @@ ${structure}\`\`\``;
           flex: "1",
           display: "flex",
           overflow: "auto",
-          fontFamily: '"JetBrains Mono", Consolas, monospace',
-          fontSize: "13px",
-          lineHeight: "1.6"
+          fontFamily: CODE_FONT.family,
+          fontSize: CODE_FONT.size,
+          lineHeight: CODE_FONT.lineHeight
         });
         const lineNumbers = document.createElement("div");
         Object.assign(lineNumbers.style, {
@@ -2634,9 +2837,10 @@ ${selectedText}
         display: "flex",
         justifyContent: "flex-end",
         gap: "12px",
-        marginTop: "20px",
-        paddingTop: "16px",
-        borderTop: "1px solid var(--ide-border)"
+        padding: "12px 20px",
+        borderTop: "1px solid var(--ide-border)",
+        flexShrink: "0"
+        // 不压缩
       });
       const closeAll = () => {
         backdrop.remove();
@@ -2719,6 +2923,28 @@ ${editedContent}
       dialog.appendChild(footer);
       document.body.appendChild(backdrop);
       document.body.appendChild(dialog);
+      const cleanupDraggable = makeDraggable(dialog, header, {
+        dialogId: "preview",
+        minWidth: 600,
+        minHeight: 400
+      });
+      const originalCloseAll = closeAll;
+      const closeAllWithCleanup = () => {
+        cleanupDraggable();
+        originalCloseAll();
+      };
+      backdrop.onclick = () => {
+        closeAllWithCleanup();
+        resolve({ confirmed: false });
+      };
+      cancelBtn.onclick = () => {
+        closeAllWithCleanup();
+        resolve({ confirmed: false });
+      };
+      confirmBtn.onclick = () => {
+        closeAllWithCleanup();
+        resolve({ confirmed: true, content: editedContent });
+      };
     });
   }
 
@@ -2766,15 +2992,15 @@ ${editedContent}
         background: "var(--ide-bg)",
         border: "1px solid var(--ide-border)",
         borderRadius: "12px",
-        padding: "20px",
         zIndex: "2147483649",
         width: "400px",
         maxHeight: "60vh",
-        overflow: "hidden",
         display: "flex",
         flexDirection: "column",
         boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
-        animation: "ideScaleIn 0.2s ease-out"
+        animation: "ideScaleIn 0.2s ease-out",
+        overflow: "hidden"
+        // 防止内容溢出
       });
       dialog.onclick = (e) => e.stopPropagation();
       const header = document.createElement("div");
@@ -2782,9 +3008,12 @@ ${editedContent}
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: "16px",
-        paddingBottom: "12px",
-        borderBottom: "1px solid var(--ide-border)"
+        padding: "12px 16px",
+        borderBottom: "1px solid var(--ide-border)",
+        flexShrink: "0",
+        // 不压缩
+        cursor: "move"
+        // 拖拽光标
       });
       const title = document.createElement("span");
       title.textContent = "\u{1F4DC} \u5386\u53F2\u56DE\u6EAF - " + filePath.split("/").pop();
@@ -2807,7 +3036,13 @@ ${editedContent}
       header.appendChild(closeBtn);
       dialog.appendChild(header);
       const list = document.createElement("div");
-      Object.assign(list.style, { flex: "1", overflowY: "auto", paddingRight: "4px" });
+      Object.assign(list.style, {
+        flex: "1",
+        overflowY: "auto",
+        padding: "8px 16px",
+        minHeight: "0"
+        // 允许收缩
+      });
       versions.forEach((v) => {
         const item = document.createElement("div");
         Object.assign(item.style, {
@@ -2881,6 +3116,20 @@ ${editedContent}
       dialog.appendChild(list);
       document.body.appendChild(backdrop);
       document.body.appendChild(dialog);
+      const cleanupDraggable = makeDraggable(dialog, header, {
+        dialogId: "history-list",
+        minWidth: 350,
+        minHeight: 300
+      });
+      const originalCloseAll = closeAll;
+      backdrop.onclick = () => {
+        cleanupDraggable();
+        originalCloseAll();
+      };
+      closeBtn.onclick = () => {
+        cleanupDraggable();
+        originalCloseAll();
+      };
     });
   }
   function showHistoryDiff(filePath, version, currentContent) {
@@ -2906,7 +3155,6 @@ ${editedContent}
       left: "50%",
       transform: "translate(-50%, -50%)",
       width: "90vw",
-      maxWidth: "1200px",
       height: "85vh",
       background: "var(--ide-bg)",
       border: "1px solid var(--ide-border)",
@@ -2915,20 +3163,47 @@ ${editedContent}
       flexDirection: "column",
       boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
       zIndex: "2147483651",
-      animation: "ideScaleIn 0.2s ease-out"
+      animation: "ideScaleIn 0.2s ease-out",
+      overflow: "hidden"
+      // 防止内容溢出
     });
     container.onclick = (e) => e.stopPropagation();
+    let currentFontSize = parseInt(CODE_FONT.size);
+    const minFontSize = 12, maxFontSize = 20;
     const header = document.createElement("div");
     Object.assign(header.style, {
-      padding: "16px 24px",
+      padding: "12px 20px",
       borderBottom: "1px solid var(--ide-border)",
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "center"
+      alignItems: "center",
+      flexShrink: "0",
+      // 不压缩
+      cursor: "move"
+      // 拖拽光标
     });
     const titleText = document.createElement("div");
     titleText.textContent = `\u{1F19A} \u7248\u672C\u5BF9\u6BD4: ${filePath.split("/").pop()}`;
     Object.assign(titleText.style, { fontWeight: "600", color: "var(--ide-text)", fontSize: "16px" });
+    const controls = document.createElement("div");
+    Object.assign(controls.style, { display: "flex", gap: "8px", alignItems: "center" });
+    const fontSmallBtn = document.createElement("button");
+    fontSmallBtn.textContent = "A-";
+    fontSmallBtn.title = "\u7F29\u5C0F\u5B57\u4F53";
+    const fontLargeBtn = document.createElement("button");
+    fontLargeBtn.textContent = "A+";
+    fontLargeBtn.title = "\u653E\u5927\u5B57\u4F53";
+    [fontSmallBtn, fontLargeBtn].forEach((btn) => {
+      Object.assign(btn.style, {
+        padding: "4px 8px",
+        borderRadius: "4px",
+        cursor: "pointer",
+        border: "1px solid var(--ide-border)",
+        fontSize: "10px",
+        background: "transparent",
+        color: "var(--ide-text)"
+      });
+    });
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "\u2715";
     closeBtn.title = "\u5173\u95ED (\u70B9\u51FB\u7A7A\u767D\u5904\u4E5F\u53EF\u5173\u95ED)";
@@ -2944,8 +3219,11 @@ ${editedContent}
     closeBtn.onmouseover = () => closeBtn.style.color = "var(--ide-text)";
     closeBtn.onmouseout = () => closeBtn.style.color = "var(--ide-text-secondary)";
     closeBtn.onclick = closeAll;
+    controls.appendChild(fontSmallBtn);
+    controls.appendChild(fontLargeBtn);
+    controls.appendChild(closeBtn);
     header.appendChild(titleText);
-    header.appendChild(closeBtn);
+    header.appendChild(controls);
     const isDark = ((_a = document.body.style.backgroundColor) == null ? void 0 : _a.includes("rgb(")) || getComputedStyle(document.body).backgroundColor !== "rgb(255, 255, 255)";
     const colors = isDark ? {
       deleteBg: "#4b1818",
@@ -2971,6 +3249,24 @@ ${editedContent}
       display: "flex",
       overflow: "hidden"
     });
+    const updateFontSize = () => {
+      const codeContainers = body.querySelectorAll('[style*="monospace"]');
+      codeContainers.forEach((el) => {
+        el.style.fontSize = `${currentFontSize}px`;
+      });
+    };
+    fontSmallBtn.onclick = () => {
+      if (currentFontSize > minFontSize) {
+        currentFontSize--;
+        updateFontSize();
+      }
+    };
+    fontLargeBtn.onclick = () => {
+      if (currentFontSize < maxFontSize) {
+        currentFontSize++;
+        updateFontSize();
+      }
+    };
     const createPane = (side) => {
       const pane = document.createElement("div");
       Object.assign(pane.style, {
@@ -2996,9 +3292,9 @@ ${editedContent}
         flex: "1",
         display: "flex",
         overflow: "auto",
-        fontFamily: '"JetBrains Mono", Consolas, monospace',
-        fontSize: "13px",
-        lineHeight: "1.6"
+        fontFamily: CODE_FONT.family,
+        fontSize: CODE_FONT.size,
+        lineHeight: CODE_FONT.lineHeight
       });
       const lineNumbers = document.createElement("div");
       Object.assign(lineNumbers.style, {
@@ -3026,6 +3322,8 @@ ${editedContent}
     const leftPane = createPane("left");
     const rightPane = createPane("right");
     let leftLineNum = 1, rightLineNum = 1;
+    let lastWasInsert = false;
+    let lastWasDelete = false;
     lineDiffs.forEach((diff) => {
       const leftLineDiv = document.createElement("div");
       const rightLineDiv = document.createElement("div");
@@ -3038,22 +3336,46 @@ ${editedContent}
         rightCodeDiv.textContent = diff.newLine;
         leftCodeDiv.style.opacity = colors.equalOpacity;
         rightCodeDiv.style.opacity = colors.equalOpacity;
+        lastWasInsert = false;
+        lastWasDelete = false;
       } else if (diff.type === "delete") {
         leftLineDiv.textContent = String(leftLineNum++);
-        rightLineDiv.textContent = "";
         leftCodeDiv.textContent = diff.oldLine;
         leftCodeDiv.style.backgroundColor = colors.deleteBg;
         leftCodeDiv.style.color = colors.deleteText;
-        rightCodeDiv.style.backgroundColor = colors.emptyBg;
-        rightCodeDiv.style.minHeight = "1.6em";
+        if (!lastWasDelete) {
+          rightLineDiv.textContent = "...";
+          rightLineDiv.style.color = "var(--ide-text-secondary)";
+          rightLineDiv.style.fontSize = "10px";
+          rightCodeDiv.textContent = "// \u2191 \u5220\u9664\u5185\u5BB9";
+          rightCodeDiv.style.color = "var(--ide-text-secondary)";
+          rightCodeDiv.style.fontStyle = "italic";
+          rightCodeDiv.style.backgroundColor = colors.emptyBg;
+        } else {
+          rightLineDiv.style.display = "none";
+          rightCodeDiv.style.display = "none";
+        }
+        lastWasDelete = true;
+        lastWasInsert = false;
       } else if (diff.type === "insert") {
-        leftLineDiv.textContent = "";
         rightLineDiv.textContent = String(rightLineNum++);
-        leftCodeDiv.style.backgroundColor = colors.emptyBg;
-        leftCodeDiv.style.minHeight = "1.6em";
         rightCodeDiv.textContent = diff.newLine;
         rightCodeDiv.style.backgroundColor = colors.insertBg;
         rightCodeDiv.style.color = colors.insertText;
+        if (!lastWasInsert) {
+          leftLineDiv.textContent = "...";
+          leftLineDiv.style.color = "var(--ide-text-secondary)";
+          leftLineDiv.style.fontSize = "10px";
+          leftCodeDiv.textContent = "// \u2193 \u65B0\u589E\u5185\u5BB9";
+          leftCodeDiv.style.color = "var(--ide-text-secondary)";
+          leftCodeDiv.style.fontStyle = "italic";
+          leftCodeDiv.style.backgroundColor = colors.emptyBg;
+        } else {
+          leftLineDiv.style.display = "none";
+          leftCodeDiv.style.display = "none";
+        }
+        lastWasInsert = true;
+        lastWasDelete = false;
       } else if (diff.type === "modify") {
         leftLineDiv.textContent = String(leftLineNum++);
         rightLineDiv.textContent = String(rightLineNum++);
@@ -3063,6 +3385,8 @@ ${editedContent}
         leftCodeDiv.style.color = colors.deleteText;
         rightCodeDiv.style.backgroundColor = colors.insertBg;
         rightCodeDiv.style.color = colors.insertText;
+        lastWasInsert = false;
+        lastWasDelete = false;
       }
       leftPane.lineNumbers.appendChild(leftLineDiv);
       leftPane.codeArea.appendChild(leftCodeDiv);
@@ -3075,6 +3399,20 @@ ${editedContent}
     container.appendChild(body);
     document.body.appendChild(backdrop);
     document.body.appendChild(container);
+    const cleanupDraggable = makeDraggable(container, header, {
+      dialogId: "history-diff",
+      minWidth: 600,
+      minHeight: 400
+    });
+    const originalCloseAll = closeAll;
+    backdrop.onclick = () => {
+      cleanupDraggable();
+      originalCloseAll();
+    };
+    closeBtn.onclick = () => {
+      cleanupDraggable();
+      originalCloseAll();
+    };
   }
 
   // src/editor/languages.js
