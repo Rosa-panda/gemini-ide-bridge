@@ -115,10 +115,9 @@ export function isAlreadyApplied(content, search, replace) {
     // 情况1：REPLACE 逻辑已存在且 SEARCH 逻辑已完全消失 -> 已应用
     if (replaceMatchCount > 0 && searchMatchCount === 0) return true;
     
-    // 情况2：REPLACE 包含 SEARCH (嵌套情况)，且 REPLACE 数量 >= SEARCH 数量 -> 已应用
-    if (replaceMatchCount > 0 && replaceMatchCount >= searchMatchCount && replaceContent.includes(searchContent)) {
-        return true;
-    }
+    // 情况2 已移除：之前的逻辑会在 REPLACE 包含 SEARCH 时误判
+    // 例如：SEARCH 是原始代码，REPLACE 是在原始基础上添加新代码
+    // 这种情况下 replaceContent.includes(searchContent) 为 true，但实际上还没应用
     
     return false;
 }

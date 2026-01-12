@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T12:04:28.933Z
+ * 自动构建于 2026-01-12T12:09:25.407Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -927,9 +927,6 @@ var IDE_BRIDGE = (() => {
     const replaceMatchCount = countMatches(contentSigs, replaceSigs);
     const searchMatchCount = countMatches(contentSigs, searchSigs);
     if (replaceMatchCount > 0 && searchMatchCount === 0) return true;
-    if (replaceMatchCount > 0 && replaceMatchCount >= searchMatchCount && replaceContent.includes(searchContent)) {
-      return true;
-    }
     return false;
   }
   function findMatchPosition(contentSigs, searchSigs, isStrictIndent = false) {
