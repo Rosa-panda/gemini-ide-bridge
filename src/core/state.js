@@ -65,7 +65,8 @@ export async function checkIfApplied(file, search, replace, fsModule) {
                 const searchExists = normalizedContent.includes(normalizedSearch);
                 const replaceExists = normalizedContent.includes(normalizedReplace);
                 
-                // 如果 search 存在，说明未应用
+                // 核心逻辑：只有当 SEARCH 不存在 且 REPLACE 存在时，才认为已应用
+                // 如果 SEARCH 还存在，无论 REPLACE 是否存在，都认为未应用
                 if (searchExists) {
                     // 如果 localStorage 有记录但文件未应用，清除脏数据
                     if (hasRecord) {
@@ -74,7 +75,7 @@ export async function checkIfApplied(file, search, replace, fsModule) {
                     return { applied: false, confident: true };
                 }
                 
-                // 如果 replace 存在，说明已应用
+                // SEARCH 不存在，检查 REPLACE 是否存在
                 if (replaceExists) {
                     // 确保 localStorage 有记录
                     if (!hasRecord) {
