@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T11:43:27.205Z
+ * 自动构建于 2026-01-12T11:47:37.510Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2049,8 +2049,23 @@ ${structure}\`\`\``;
     }
     return diffs;
   }
-  function renderHighlightedLine(charDiffs, type, colors) {
+  function getChangeRatio(charDiffs) {
+    let totalChars = 0;
+    let changedChars = 0;
+    charDiffs.forEach((diff) => {
+      totalChars += diff.value.length;
+      if (diff.type !== "equal") changedChars += diff.value.length;
+    });
+    return totalChars > 0 ? changedChars / totalChars : 0;
+  }
+  function renderHighlightedLine(charDiffs, type, colors, fullText = "") {
     const span = document.createElement("span");
+    const changeRatio = getChangeRatio(charDiffs);
+    if (changeRatio > 0.5 && fullText) {
+      span.textContent = fullText;
+      span.style.color = type === "old" ? colors.deleteText : colors.insertText;
+      return span;
+    }
     charDiffs.forEach((diff) => {
       if (type === "old" && diff.type === "insert") return;
       if (type === "new" && diff.type === "delete") return;
@@ -2408,8 +2423,8 @@ ${structure}\`\`\``;
               leftLineDiv.textContent = String(leftLineNum++);
               rightLineDiv.textContent = String(rightLineNum++);
               const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-              leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, "old", colors));
-              rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, "new", colors));
+              leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, "old", colors, diff.oldLine));
+              rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, "new", colors, diff.newLine));
               leftCodeDiv.style.backgroundColor = colors.deleteBg;
               rightCodeDiv.style.backgroundColor = colors.insertBg;
             }
@@ -2439,7 +2454,7 @@ ${structure}\`\`\``;
             } else if (diff.type === "modify") {
               leftLineDiv.textContent = String(leftLineNum++);
               const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-              leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, "old", colors));
+              leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, "old", colors, diff.oldLine));
               leftCodeDiv.style.backgroundColor = colors.deleteBg;
             }
             leftPanel.lineNumbers.appendChild(leftLineDiv);

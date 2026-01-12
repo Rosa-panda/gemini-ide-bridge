@@ -252,14 +252,38 @@ function computeCharDiff(oldText, newText) {
 }
 
 /**
+* 计算字符级差异的变化比例
+* @param {Array} charDiffs - 字符级差异数组
+* @returns {number} 变化比例 (0-1)
+*/
+function getChangeRatio(charDiffs) {
+    let totalChars = 0;
+    let changedChars = 0;
+    charDiffs.forEach(diff => {
+        totalChars += diff.value.length;
+        if (diff.type !== 'equal') changedChars += diff.value.length;
+    });
+    return totalChars > 0 ? changedChars / totalChars : 0;
+}
+
+/**
 * 渲染带字符级高亮的行
 * @param {Array} charDiffs - 字符级差异数组
 * @param {string} type - 'old' 或 'new'
 * @param {Object} colors - 主题配色方案
+* @param {string} fullText - 完整行文本（用于整行标记模式）
 * @returns {HTMLElement} 渲染后的行元素
 */
-function renderHighlightedLine(charDiffs, type, colors) {
+function renderHighlightedLine(charDiffs, type, colors, fullText = '') {
     const span = document.createElement('span');
+    
+    // 如果变化超过 50%，整行标记而不是逐字符高亮
+    const changeRatio = getChangeRatio(charDiffs);
+    if (changeRatio > 0.5 && fullText) {
+        span.textContent = fullText;
+        span.style.color = type === 'old' ? colors.deleteText : colors.insertText;
+        return span;
+    }
     
     charDiffs.forEach(diff => {
         // 核心修复：左侧面板(old)只渲染 equal 和 delete；右侧面板(new)只渲染 equal 和 insert
@@ -681,8 +705,8 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                         leftLineDiv.textContent = String(leftLineNum++);
                         rightLineDiv.textContent = String(rightLineNum++);
                         const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
-                        rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors));
+                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors, diff.oldLine));
+                        rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors, diff.newLine));
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                         rightCodeDiv.style.backgroundColor = colors.insertBg;
                     }
@@ -716,7 +740,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                     } else if (diff.type === 'modify') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
+                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors, diff.oldLine));
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                     }
 
