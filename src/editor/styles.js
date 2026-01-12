@@ -79,7 +79,7 @@ export function getEditorStyles() {
             background: rgba(0,0,0,0.2);
             min-width: 50px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             overflow-y: hidden;
             position: relative;
@@ -109,7 +109,7 @@ export function getEditorStyles() {
             top: 0; left: 0; right: 0;
             padding: 4px 8px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             white-space: pre;
             pointer-events: none;
@@ -119,7 +119,7 @@ export function getEditorStyles() {
             top: 0; left: 0; right: 0; bottom: 0;
             padding: 4px 8px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             white-space: pre;
             background: transparent;

@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T13:08:45.736Z
+ * 自动构建于 2026-01-12T14:52:33.350Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2490,6 +2490,7 @@ ${selectedText}
           let leftLineNum = startLine;
           let rightLineNum = startLine;
           let lastWasInsert = false;
+          let lastWasDelete = false;
           lineDiffs.forEach((diff) => {
             const leftLineDiv = document.createElement("div");
             const rightLineDiv = document.createElement("div");
@@ -2503,14 +2504,25 @@ ${selectedText}
               leftCodeDiv.style.opacity = colors.equalOpacity;
               rightCodeDiv.style.opacity = colors.equalOpacity;
               lastWasInsert = false;
+              lastWasDelete = false;
             } else if (diff.type === "delete") {
               leftLineDiv.textContent = String(leftLineNum++);
-              rightLineDiv.textContent = "";
               leftCodeDiv.textContent = diff.oldLine;
               leftCodeDiv.style.backgroundColor = colors.deleteBg;
               leftCodeDiv.style.color = colors.deleteText;
-              rightCodeDiv.style.backgroundColor = colors.emptyBg;
-              rightCodeDiv.style.minHeight = "1.6em";
+              if (!lastWasDelete) {
+                rightLineDiv.textContent = "...";
+                rightLineDiv.style.color = "var(--ide-text-secondary)";
+                rightLineDiv.style.fontSize = "10px";
+                rightCodeDiv.textContent = "// \u2191 \u5220\u9664\u5185\u5BB9";
+                rightCodeDiv.style.color = "var(--ide-text-secondary)";
+                rightCodeDiv.style.fontStyle = "italic";
+                rightCodeDiv.style.backgroundColor = colors.emptyBg;
+              } else {
+                rightLineDiv.style.display = "none";
+                rightCodeDiv.style.display = "none";
+              }
+              lastWasDelete = true;
               lastWasInsert = false;
             } else if (diff.type === "insert") {
               rightLineDiv.textContent = String(rightLineNum++);
@@ -2530,6 +2542,7 @@ ${selectedText}
                 leftCodeDiv.style.display = "none";
               }
               lastWasInsert = true;
+              lastWasDelete = false;
             } else if (diff.type === "modify") {
               leftLineDiv.textContent = String(leftLineNum++);
               rightLineDiv.textContent = String(rightLineNum++);
@@ -2539,6 +2552,7 @@ ${selectedText}
               leftCodeDiv.style.backgroundColor = colors.deleteBg;
               rightCodeDiv.style.backgroundColor = colors.insertBg;
               lastWasInsert = false;
+              lastWasDelete = false;
             }
             leftPanel.lineNumbers.appendChild(leftLineDiv);
             leftPanel.codeArea.appendChild(leftCodeDiv);
@@ -3970,336 +3984,6 @@ ${editedContent}
     return { update, updateViewport, element: wrapper };
   }
 
-  // src/editor/folding.js
-  var BLOCK_OPENERS = {
-    javascript: ["function", "class", "if", "else", "for", "while", "switch", "try", "catch", "finally", "with", "async", "export", "import"],
-    python: ["class", "def", "if", "elif", "else", "while", "for", "try", "except", "finally", "with", "async", "match", "case"],
-    css: ["@media", "@keyframes", "@font-face", "@supports"],
-    html: [],
-    json: []
-  };
-  var MIN_FOLD_LINES = 1;
-  var MAX_FOLD_REGIONS = 500;
-  function getIndent(line) {
-    const match = line.match(/^(\s*)/);
-    if (!match) return 0;
-    return match[1].replace(/\t/g, "    ").length;
-  }
-  function analyzeFoldingRanges(code, language = "javascript") {
-    const lines = code.split("\n");
-    const ranges = [];
-    if (lines.length > 1e4) {
-      console.warn("[Folding] \u6587\u4EF6\u8FC7\u5927\uFF0C\u8DF3\u8FC7\u6298\u53E0\u5206\u6790");
-      return ranges;
-    }
-    if (language === "python") {
-      analyzePythonFolding(lines, ranges);
-    } else {
-      analyzeBracketFolding(lines, ranges, language);
-    }
-    analyzeCommentFolding(lines, ranges);
-    ranges.sort((a, b) => a.startLine - b.startLine || b.endLine - a.endLine);
-    const uniqueRanges = [];
-    let lastStart = -1;
-    for (const range of ranges) {
-      if (range.startLine !== lastStart && range.endLine - range.startLine >= MIN_FOLD_LINES) {
-        uniqueRanges.push(range);
-        lastStart = range.startLine;
-      }
-    }
-    return uniqueRanges.slice(0, MAX_FOLD_REGIONS);
-  }
-  function analyzePythonFolding(lines, ranges) {
-    const openers = BLOCK_OPENERS.python;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      if (!trimmed.endsWith(":")) continue;
-      const hasOpener = openers.some((op) => {
-        const regex = new RegExp(`^${op}\\b`);
-        return regex.test(trimmed);
-      });
-      if (!hasOpener) continue;
-      const startIndent = getIndent(line);
-      let endLine = i;
-      for (let j = i + 1; j < lines.length; j++) {
-        const nextLine = lines[j];
-        const nextTrimmed = nextLine.trim();
-        if (!nextTrimmed) continue;
-        const nextIndent = getIndent(nextLine);
-        if (nextIndent <= startIndent) {
-          break;
-        }
-        endLine = j;
-      }
-      if (endLine > i) {
-        ranges.push({
-          startLine: i,
-          endLine,
-          indent: startIndent,
-          type: "block"
-        });
-      }
-    }
-  }
-  function analyzeBracketFolding(lines, ranges, language) {
-    const bracketStack = [];
-    const bracketPairs = { "{": "}", "[": "]" };
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      let inString = false;
-      let stringChar = "";
-      for (let j = 0; j < line.length; j++) {
-        const char = line[j];
-        if (!inString) {
-          if (char === '"' || char === "'" || char === "`") {
-            inString = true;
-            stringChar = char;
-            continue;
-          }
-          if (char === "/" && line[j + 1] === "/") break;
-        } else {
-          if (char === stringChar && line[j - 1] !== "\\") {
-            inString = false;
-          }
-          continue;
-        }
-        if (char === "{" || char === "[") {
-          bracketStack.push({ char, line: i, col: j });
-        } else if (char === "}" || char === "]") {
-          if (bracketStack.length > 0) {
-            const open = bracketStack.pop();
-            const expectedClose = bracketPairs[open.char];
-            if (char === expectedClose && i > open.line) {
-              ranges.push({
-                startLine: open.line,
-                endLine: i,
-                indent: getIndent(lines[open.line]),
-                type: "bracket"
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-  function analyzeCommentFolding(lines, ranges) {
-    let inComment = false;
-    let commentStart = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-      if (!inComment) {
-        if (trimmed.startsWith("/*")) {
-          inComment = true;
-          commentStart = i;
-          if (trimmed.endsWith("*/") && trimmed.length > 4) {
-            inComment = false;
-            commentStart = -1;
-          }
-        } else if (trimmed.startsWith('"""') || trimmed.startsWith("'''")) {
-          const quote = trimmed.slice(0, 3);
-          inComment = true;
-          commentStart = i;
-          if (trimmed.length > 6 && trimmed.endsWith(quote)) {
-            inComment = false;
-            commentStart = -1;
-          }
-        }
-      } else {
-        if (trimmed.endsWith("*/") || trimmed.endsWith('"""') || trimmed.endsWith("'''")) {
-          if (i > commentStart) {
-            ranges.push({
-              startLine: commentStart,
-              endLine: i,
-              indent: getIndent(lines[commentStart]),
-              type: "comment"
-            });
-          }
-          inComment = false;
-          commentStart = -1;
-        }
-      }
-    }
-  }
-  function createFoldingManager() {
-    let foldingRanges = [];
-    let collapsedRanges = /* @__PURE__ */ new Set();
-    let cachedCode = "";
-    let cachedLanguage = "";
-    return {
-      /**
-       * 更新折叠区域（带缓存）
-       */
-      update(code, language) {
-        if (code === cachedCode && language === cachedLanguage) {
-          return;
-        }
-        cachedCode = code;
-        cachedLanguage = language;
-        foldingRanges = analyzeFoldingRanges(code, language);
-        const validStarts = new Set(foldingRanges.map((r) => r.startLine));
-        for (const line of collapsedRanges) {
-          if (!validStarts.has(line)) {
-            collapsedRanges.delete(line);
-          }
-        }
-      },
-      /**
-       * 获取所有折叠区域
-       */
-      getRanges() {
-        return foldingRanges.map((r) => ({
-          ...r,
-          collapsed: collapsedRanges.has(r.startLine)
-        }));
-      },
-      /**
-       * 获取指定行的折叠区域
-       */
-      getRangeAtLine(lineNum) {
-        return foldingRanges.find((r) => r.startLine === lineNum);
-      },
-      /**
-       * 切换折叠状态
-       */
-      toggle(lineNum) {
-        const range = this.getRangeAtLine(lineNum);
-        if (!range) return false;
-        if (collapsedRanges.has(lineNum)) {
-          collapsedRanges.delete(lineNum);
-        } else {
-          collapsedRanges.add(lineNum);
-        }
-        return true;
-      },
-      /**
-       * 检查行是否被折叠隐藏
-       */
-      isLineHidden(lineNum) {
-        for (const startLine of collapsedRanges) {
-          const range = foldingRanges.find((r) => r.startLine === startLine);
-          if (range && lineNum > range.startLine && lineNum <= range.endLine) {
-            return true;
-          }
-        }
-        return false;
-      },
-      /**
-       * 检查行是否是折叠区域的起始行
-       */
-      isFoldStart(lineNum) {
-        return foldingRanges.some((r) => r.startLine === lineNum);
-      },
-      /**
-       * 检查行是否已折叠
-       */
-      isCollapsed(lineNum) {
-        return collapsedRanges.has(lineNum);
-      },
-      /**
-       * 获取折叠区域的隐藏行数
-       */
-      getHiddenLineCount(lineNum) {
-        const range = this.getRangeAtLine(lineNum);
-        if (!range || !collapsedRanges.has(lineNum)) return 0;
-        return range.endLine - range.startLine;
-      },
-      /**
-       * 折叠所有
-       */
-      foldAll() {
-        foldingRanges.forEach((r) => collapsedRanges.add(r.startLine));
-      },
-      /**
-       * 展开所有
-       */
-      unfoldAll() {
-        collapsedRanges.clear();
-      },
-      /**
-       * 按级别折叠（1 = 顶级，2 = 第二级...）
-       */
-      foldAtLevel(level) {
-        const indentUnit = 4;
-        foldingRanges.forEach((r) => {
-          const rangeLevel = Math.floor(r.indent / indentUnit) + 1;
-          if (rangeLevel >= level) {
-            collapsedRanges.add(r.startLine);
-          }
-        });
-      },
-      /**
-       * 获取统计信息
-       */
-      getStats() {
-        return {
-          totalRanges: foldingRanges.length,
-          collapsedCount: collapsedRanges.size,
-          hiddenLines: Array.from(collapsedRanges).reduce((sum, startLine) => {
-            const range = foldingRanges.find((r) => r.startLine === startLine);
-            return sum + (range ? range.endLine - range.startLine : 0);
-          }, 0)
-        };
-      },
-      /**
-       * 清除缓存（强制下次重新分析）
-       */
-      clearCache() {
-        cachedCode = "";
-        cachedLanguage = "";
-      }
-    };
-  }
-  function getFoldingStyles() {
-    return `
-        .ide-fold-icon {
-            position: absolute;
-            left: 2px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 14px;
-            height: 14px;
-            font-size: 10px;
-            line-height: 14px;
-            text-align: center;
-            cursor: pointer;
-            color: rgba(255,255,255,0.4);
-            border-radius: 2px;
-            user-select: none;
-            transition: all 0.15s ease;
-        }
-        .ide-fold-icon:hover {
-            background: rgba(255,255,255,0.15);
-            color: rgba(255,255,255,0.9);
-        }
-        .ide-fold-icon.collapsed {
-            color: #569cd6;
-        }
-        .ide-fold-marker {
-            display: inline-block;
-            background: rgba(86, 156, 214, 0.2);
-            color: #569cd6;
-            padding: 0 4px;
-            margin-left: 4px;
-            border-radius: 2px;
-            font-size: 10px;
-            cursor: pointer;
-            user-select: none;
-        }
-        .ide-fold-marker:hover {
-            background: rgba(86, 156, 214, 0.4);
-        }
-        .ide-editor-gutter div.hidden {
-            display: none;
-        }
-        .ide-highlight-line.hidden {
-            display: none;
-        }
-    `;
-  }
-
   // src/editor/styles.js
   function getEditorStyles() {
     return `
@@ -4375,7 +4059,7 @@ ${editedContent}
             background: rgba(0,0,0,0.2);
             min-width: 50px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             overflow-y: hidden;
             position: relative;
@@ -4405,7 +4089,7 @@ ${editedContent}
             top: 0; left: 0; right: 0;
             padding: 4px 8px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             white-space: pre;
             pointer-events: none;
@@ -4415,7 +4099,7 @@ ${editedContent}
             top: 0; left: 0; right: 0; bottom: 0;
             padding: 4px 8px;
             font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
+            font-size: 15px;
             line-height: 1.5;
             white-space: pre;
             background: transparent;
@@ -4484,6 +4168,12 @@ ${editedContent}
   }
 
   // src/editor/index.js
+  var FONT_CONFIG = {
+    min: 12,
+    max: 20,
+    default: 15,
+    step: 1
+  };
   async function showEditorDialog(filePath) {
     const content = await fs.readFile(filePath);
     if (content === null) {
@@ -4492,15 +4182,16 @@ ${editedContent}
     }
     const fileName = filePath.split("/").pop();
     const language = detectLanguage(fileName);
+    let fontSize = FONT_CONFIG.default;
+    const getLineHeight = () => fontSize * 1.5;
     const undoStack = new UndoStack();
     undoStack.push({ content, cursor: 0 });
-    const foldingManager = createFoldingManager();
     let isComposing = false;
     let isDragging = false;
     let resizeEdge = null;
     let dragOffset = { x: 0, y: 0 };
     let resizeStart = { x: 0, y: 0, w: 0, h: 0, top: 0, left: 0 };
-    injectEditorStyles(getHighlightStyles(), getFoldingStyles());
+    injectEditorStyles(getHighlightStyles(), "");
     const backdrop = document.createElement("div");
     Object.assign(backdrop.style, {
       position: "fixed",
@@ -4537,6 +4228,14 @@ ${editedContent}
     title.append(titleIcon, titleName, titlePath);
     const controls = document.createElement("div");
     controls.className = "ide-editor-controls";
+    const fontSmallBtn = document.createElement("button");
+    fontSmallBtn.textContent = "A-";
+    fontSmallBtn.title = "\u7F29\u5C0F\u5B57\u4F53";
+    fontSmallBtn.style.fontSize = "10px";
+    const fontLargeBtn = document.createElement("button");
+    fontLargeBtn.textContent = "A+";
+    fontLargeBtn.title = "\u653E\u5927\u5B57\u4F53";
+    fontLargeBtn.style.fontSize = "10px";
     const undoBtn = document.createElement("button");
     undoBtn.textContent = "\u21A9";
     undoBtn.title = "Ctrl+Z \u64A4\u9500";
@@ -4547,7 +4246,7 @@ ${editedContent}
     closeBtn.textContent = "\u2715";
     closeBtn.title = "ESC \u5173\u95ED";
     closeBtn.style.color = "#f48771";
-    controls.append(undoBtn, redoBtn, closeBtn);
+    controls.append(fontSmallBtn, fontLargeBtn, undoBtn, redoBtn, closeBtn);
     titlebar.append(title, controls);
     const body = document.createElement("div");
     body.className = "ide-editor-body";
@@ -4589,72 +4288,29 @@ ${editedContent}
     statusbar.append(statusLeft, statusRight);
     win.append(titlebar, body, statusbar);
     let currentLine = 1;
-    foldingManager.update(content, language);
     const updateGutter = () => {
       const lines = textarea.value.split("\n");
-      const ranges = foldingManager.getRanges();
-      const rangeStarts = new Map(ranges.map((r) => [r.startLine, r]));
       while (gutter.firstChild) gutter.removeChild(gutter.firstChild);
-      let visibleLineIndex = 0;
       lines.forEach((_, i) => {
         const lineNum = i + 1;
-        if (foldingManager.isLineHidden(i)) {
-          return;
-        }
         const div = document.createElement("div");
-        const range = rangeStarts.get(i);
-        if (range) {
-          const foldIcon = document.createElement("span");
-          foldIcon.className = "ide-fold-icon" + (range.collapsed ? " collapsed" : "");
-          foldIcon.textContent = range.collapsed ? "\u25B6" : "\u25BC";
-          foldIcon.onclick = (e) => {
-            e.stopPropagation();
-            foldingManager.toggle(i);
-            foldingManager.clearCache();
-            updateGutter();
-            updateHighlight();
-            syncScroll();
-          };
-          div.appendChild(foldIcon);
-        }
         const numSpan = document.createElement("span");
         numSpan.textContent = String(lineNum);
         div.appendChild(numSpan);
         if (lineNum === currentLine) div.classList.add("active");
         gutter.appendChild(div);
-        visibleLineIndex++;
       });
     };
     const updateHighlight = () => {
       while (highlightLayer.firstChild) highlightLayer.removeChild(highlightLayer.firstChild);
-      const lines = textarea.value.split("\n");
-      const ranges = foldingManager.getRanges();
-      const collapsedStarts = new Map(
-        ranges.filter((r) => r.collapsed).map((r) => [r.startLine, r])
-      );
-      const visibleLines = [];
-      for (let i = 0; i < lines.length; i++) {
-        if (foldingManager.isLineHidden(i)) {
-          continue;
-        }
-        let line = lines[i];
-        const collapsedRange = collapsedStarts.get(i);
-        if (collapsedRange) {
-          const hiddenCount = collapsedRange.endLine - collapsedRange.startLine;
-          line = line.trimEnd() + ` ... \u27EA ${hiddenCount} lines \u27EB`;
-        }
-        visibleLines.push(line);
-      }
-      const visibleCode = visibleLines.join("\n");
-      highlightToDOM(visibleCode, language, highlightLayer);
-      foldingManager.update(textarea.value, language);
+      highlightToDOM(textarea.value, language, highlightLayer);
       minimap.update(textarea.value);
     };
     const updateLineHighlight = () => {
       const pos = textarea.selectionStart;
       const { line } = getLineCol(textarea.value, pos);
       currentLine = line;
-      const lineHeight = 18;
+      const lineHeight = getLineHeight();
       lineHighlight.style.top = `${4 + (line - 1) * lineHeight}px`;
       const gutterDivs = gutter.children;
       for (let i = 0; i < gutterDivs.length; i++) {
@@ -4664,12 +4320,7 @@ ${editedContent}
     const updateStatus = () => {
       const pos = textarea.selectionStart;
       const { line, col } = getLineCol(textarea.value, pos);
-      const stats = foldingManager.getStats();
-      let statusText = `Ln ${line}, Col ${col}`;
-      if (stats.collapsedCount > 0) {
-        statusText += ` | \u6298\u53E0: ${stats.collapsedCount} \u533A\u57DF, ${stats.hiddenLines} \u884C`;
-      }
-      statusLeft.textContent = statusText;
+      statusLeft.textContent = `Ln ${line}, Col ${col}`;
     };
     const updateButtons = () => {
       undoBtn.style.opacity = undoStack.canUndo() ? "1" : "0.3";
@@ -4849,6 +4500,20 @@ ${editedContent}
     undoBtn.onclick = doUndo;
     redoBtn.onclick = doRedo;
     closeBtn.onclick = closeAll;
+    const updateFontSize = (newSize) => {
+      fontSize = Math.max(FONT_CONFIG.min, Math.min(FONT_CONFIG.max, newSize));
+      const lineHeight = getLineHeight();
+      [gutter, highlightLayer, textarea].forEach((el) => {
+        el.style.fontSize = `${fontSize}px`;
+        el.style.lineHeight = "1.5";
+      });
+      lineHighlight.style.height = `${lineHeight}px`;
+      updateAll();
+      fontSmallBtn.style.opacity = fontSize <= FONT_CONFIG.min ? "0.3" : "1";
+      fontLargeBtn.style.opacity = fontSize >= FONT_CONFIG.max ? "0.3" : "1";
+    };
+    fontSmallBtn.onclick = () => updateFontSize(fontSize - FONT_CONFIG.step);
+    fontLargeBtn.onclick = () => updateFontSize(fontSize + FONT_CONFIG.step);
     saveBtn.onclick = async () => {
       saveBtn.textContent = "\u4FDD\u5B58\u4E2D...";
       saveBtn.disabled = true;

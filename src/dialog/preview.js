@@ -490,6 +490,7 @@ ${selectedText}
                 let leftLineNum = startLine;
                 let rightLineNum = startLine;
                 let lastWasInsert = false;  // 追踪上一行是否是 insert
+                let lastWasDelete = false;  // 追踪上一行是否是 delete
 
                 lineDiffs.forEach(diff => {
                     const leftLineDiv = document.createElement('div');
@@ -505,14 +506,29 @@ ${selectedText}
                         leftCodeDiv.style.opacity = colors.equalOpacity;
                         rightCodeDiv.style.opacity = colors.equalOpacity;
                         lastWasInsert = false;
+                        lastWasDelete = false;
                     } else if (diff.type === 'delete') {
+                        // 左边正常显示删除行
                         leftLineDiv.textContent = String(leftLineNum++);
-                        rightLineDiv.textContent = '';
                         leftCodeDiv.textContent = diff.oldLine;
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                         leftCodeDiv.style.color = colors.deleteText;
-                        rightCodeDiv.style.backgroundColor = colors.emptyBg;
-                        rightCodeDiv.style.minHeight = '1.6em';
+                        
+                        // 右边：连续 delete 只显示一行空白占位
+                        if (!lastWasDelete) {
+                            rightLineDiv.textContent = '...';
+                            rightLineDiv.style.color = 'var(--ide-text-secondary)';
+                            rightLineDiv.style.fontSize = '10px';
+                            rightCodeDiv.textContent = '// ↑ 删除内容';
+                            rightCodeDiv.style.color = 'var(--ide-text-secondary)';
+                            rightCodeDiv.style.fontStyle = 'italic';
+                            rightCodeDiv.style.backgroundColor = colors.emptyBg;
+                        } else {
+                            // 连续 delete，右边不添加任何内容
+                            rightLineDiv.style.display = 'none';
+                            rightCodeDiv.style.display = 'none';
+                        }
+                        lastWasDelete = true;
                         lastWasInsert = false;
                     } else if (diff.type === 'insert') {
                         // 右边正常显示新增行
@@ -536,6 +552,7 @@ ${selectedText}
                             leftCodeDiv.style.display = 'none';
                         }
                         lastWasInsert = true;
+                        lastWasDelete = false;
                     } else if (diff.type === 'modify') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         rightLineDiv.textContent = String(rightLineNum++);
@@ -545,6 +562,7 @@ ${selectedText}
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                         rightCodeDiv.style.backgroundColor = colors.insertBg;
                         lastWasInsert = false;
+                        lastWasDelete = false;
                     }
 
                     leftPanel.lineNumbers.appendChild(leftLineDiv);

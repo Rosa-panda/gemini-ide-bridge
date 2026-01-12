@@ -7,9 +7,16 @@ import { showToast } from '../shared/utils.js';
 import { UndoStack, getLineCol } from './core.js';
 import { highlightToDOM, detectLanguage, getHighlightStyles } from './highlight.js';
 import { createMinimap } from './minimap.js';
-import { createFoldingManager, getFoldingStyles } from './folding.js';
 import { injectEditorStyles } from './styles.js';
 import { insertToInput } from '../gemini/input.js';
+
+// 编辑器字体配置
+const FONT_CONFIG = {
+    min: 12,
+    max: 20,
+    default: 15,
+    step: 1
+};
 
 /**
  * 显示编辑器对话框
@@ -24,18 +31,21 @@ export async function showEditorDialog(filePath) {
     const fileName = filePath.split('/').pop();
     const language = detectLanguage(fileName);
     
+    // 字体大小状态
+    let fontSize = FONT_CONFIG.default;
+    const getLineHeight = () => fontSize * 1.5;
+    
     // 状态
     const undoStack = new UndoStack();
     undoStack.push({ content, cursor: 0 });
-    const foldingManager = createFoldingManager();
     let isComposing = false;
     let isDragging = false;
-    let resizeEdge = null; // 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
+    let resizeEdge = null;
     let dragOffset = { x: 0, y: 0 };
     let resizeStart = { x: 0, y: 0, w: 0, h: 0, top: 0, left: 0 };
     
     // === 注入样式 ===
-    injectEditorStyles(getHighlightStyles(), getFoldingStyles());
+    injectEditorStyles(getHighlightStyles(), '');
     
     // === 创建 UI ===
     const backdrop = document.createElement('div');
@@ -79,6 +89,17 @@ export async function showEditorDialog(filePath) {
     const controls = document.createElement('div');
     controls.className = 'ide-editor-controls';
     
+    // 字体缩放按钮
+    const fontSmallBtn = document.createElement('button');
+    fontSmallBtn.textContent = 'A-';
+    fontSmallBtn.title = '缩小字体';
+    fontSmallBtn.style.fontSize = '10px';
+    
+    const fontLargeBtn = document.createElement('button');
+    fontLargeBtn.textContent = 'A+';
+    fontLargeBtn.title = '放大字体';
+    fontLargeBtn.style.fontSize = '10px';
+    
     const undoBtn = document.createElement('button');
     undoBtn.textContent = '↩';
     undoBtn.title = 'Ctrl+Z 撤销';
@@ -92,7 +113,7 @@ export async function showEditorDialog(filePath) {
     closeBtn.title = 'ESC 关闭';
     closeBtn.style.color = '#f48771';
     
-    controls.append(undoBtn, redoBtn, closeBtn);
+    controls.append(fontSmallBtn, fontLargeBtn, undoBtn, redoBtn, closeBtn);
     titlebar.append(title, controls);
     
     // 编辑区域
@@ -164,95 +185,28 @@ export async function showEditorDialog(filePath) {
     // === 功能实现 ===
     let currentLine = 1;
     
-    // 初始化折叠
-    foldingManager.update(content, language);
-    
-    // 更新行号（带折叠图标）
+    // 更新行号（简化版，无折叠）
     const updateGutter = () => {
         const lines = textarea.value.split('\n');
-        const ranges = foldingManager.getRanges();
-        const rangeStarts = new Map(ranges.map(r => [r.startLine, r]));
         
         while (gutter.firstChild) gutter.removeChild(gutter.firstChild);
         
-        let visibleLineIndex = 0;
         lines.forEach((_, i) => {
             const lineNum = i + 1;
-            
-            // 检查是否被折叠隐藏
-            if (foldingManager.isLineHidden(i)) {
-                return; // 跳过隐藏的行，不创建 DOM 元素
-            }
-            
             const div = document.createElement('div');
-            
-            // 检查是否是折叠区域起始行
-            const range = rangeStarts.get(i);
-            if (range) {
-                const foldIcon = document.createElement('span');
-                foldIcon.className = 'ide-fold-icon' + (range.collapsed ? ' collapsed' : '');
-                foldIcon.textContent = range.collapsed ? '▶' : '▼';
-                foldIcon.onclick = (e) => {
-                    e.stopPropagation();
-                    foldingManager.toggle(i);
-                    foldingManager.clearCache(); // 强制重新计算
-                    updateGutter();
-                    updateHighlight();
-                    syncScroll();
-                };
-                div.appendChild(foldIcon);
-            }
             
             const numSpan = document.createElement('span');
             numSpan.textContent = String(lineNum);
             div.appendChild(numSpan);
-            
             if (lineNum === currentLine) div.classList.add('active');
             gutter.appendChild(div);
-            visibleLineIndex++;
         });
     };
     
     // 更新高亮（DOM 方式，绕过 Trusted Types）
     const updateHighlight = () => {
         while (highlightLayer.firstChild) highlightLayer.removeChild(highlightLayer.firstChild);
-        
-        const lines = textarea.value.split('\n');
-        const ranges = foldingManager.getRanges();
-        const collapsedStarts = new Map(
-            ranges.filter(r => r.collapsed).map(r => [r.startLine, r])
-        );
-        
-        // 构建可见代码，处理折叠
-        // 核心修正：
-        // 1. 如果有折叠，我们只渲染可见部分到高亮层
-        // 2. 注意：Textarea 依然保持全文（这是光标错位的根源，但为了数据安全暂时保留）
-        // 3. 增加占位符样式
-        
-        const visibleLines = [];
-        for (let i = 0; i < lines.length; i++) {
-            if (foldingManager.isLineHidden(i)) {
-                continue;
-            }
-            
-            let line = lines[i];
-            const collapsedRange = collapsedStarts.get(i);
-            
-            // 构建高亮 DOM
-            if (collapsedRange) {
-                const hiddenCount = collapsedRange.endLine - collapsedRange.startLine;
-                // 使用特殊的占位符，并在 highlight.js 中处理（或直接作为文本显示）
-                line = line.trimEnd() + ` ... ⟪ ${hiddenCount} lines ⟫`;
-            }
-            visibleLines.push(line);
-        }
-        
-        // 渲染可见部分
-        const visibleCode = visibleLines.join('\n');
-        highlightToDOM(visibleCode, language, highlightLayer);
-        
-        // 更新折叠区域（但不清除缓存，避免循环）
-        foldingManager.update(textarea.value, language);
+        highlightToDOM(textarea.value, language, highlightLayer);
         minimap.update(textarea.value);
     };
     
@@ -261,7 +215,7 @@ export async function showEditorDialog(filePath) {
         const pos = textarea.selectionStart;
         const { line } = getLineCol(textarea.value, pos);
         currentLine = line;
-        const lineHeight = 18; // 12px * 1.5
+        const lineHeight = getLineHeight();
         lineHighlight.style.top = `${4 + (line - 1) * lineHeight}px`;
         
         // 更新行号高亮
@@ -275,13 +229,7 @@ export async function showEditorDialog(filePath) {
     const updateStatus = () => {
         const pos = textarea.selectionStart;
         const { line, col } = getLineCol(textarea.value, pos);
-        const stats = foldingManager.getStats();
-        
-        let statusText = `Ln ${line}, Col ${col}`;
-        if (stats.collapsedCount > 0) {
-            statusText += ` | 折叠: ${stats.collapsedCount} 区域, ${stats.hiddenLines} 行`;
-        }
-        statusLeft.textContent = statusText;
+        statusLeft.textContent = `Ln ${line}, Col ${col}`;
     };
     
     // 更新按钮状态
@@ -500,6 +448,31 @@ export async function showEditorDialog(filePath) {
     undoBtn.onclick = doUndo;
     redoBtn.onclick = doRedo;
     closeBtn.onclick = closeAll;
+    
+    // 字体缩放功能
+    const updateFontSize = (newSize) => {
+        fontSize = Math.max(FONT_CONFIG.min, Math.min(FONT_CONFIG.max, newSize));
+        const lineHeight = getLineHeight();
+        
+        // 更新所有相关元素的字体大小
+        [gutter, highlightLayer, textarea].forEach(el => {
+            el.style.fontSize = `${fontSize}px`;
+            el.style.lineHeight = '1.5';
+        });
+        
+        // 更新行高亮的高度
+        lineHighlight.style.height = `${lineHeight}px`;
+        
+        // 刷新显示
+        updateAll();
+        
+        // 更新按钮状态
+        fontSmallBtn.style.opacity = fontSize <= FONT_CONFIG.min ? '0.3' : '1';
+        fontLargeBtn.style.opacity = fontSize >= FONT_CONFIG.max ? '0.3' : '1';
+    };
+    
+    fontSmallBtn.onclick = () => updateFontSize(fontSize - FONT_CONFIG.step);
+    fontLargeBtn.onclick = () => updateFontSize(fontSize + FONT_CONFIG.step);
     
     saveBtn.onclick = async () => {
         saveBtn.textContent = '保存中...';
