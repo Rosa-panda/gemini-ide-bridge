@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T12:27:30.269Z
+ * 自动构建于 2026-01-12T12:37:20.958Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -1324,6 +1324,25 @@ var IDE_BRIDGE = (() => {
   }
 
   // src/core/patcher/index.js
+  function safeReplace(content, search, replace) {
+    const normalizedContent = normalizeLineEnding(content);
+    const normalizedSearch = normalizeLineEnding(search);
+    const normalizedReplace = normalizeLineEnding(replace);
+    if (!normalizedContent.includes(normalizedSearch)) {
+      return {
+        success: false,
+        error: "\u672A\u627E\u5230\u5339\u914D\u5185\u5BB9\uFF08\u53EF\u80FD\u662F\u6362\u884C\u7B26\u6216\u7A7A\u767D\u5B57\u7B26\u5DEE\u5F02\uFF09"
+      };
+    }
+    const result = normalizedContent.replace(normalizedSearch, normalizedReplace);
+    if (result === normalizedContent) {
+      return {
+        success: false,
+        error: "\u66FF\u6362\u672A\u751F\u6548\uFF08search \u548C replace \u5185\u5BB9\u76F8\u540C\uFF1F\uFF09"
+      };
+    }
+    return { success: true, content: result };
+  }
   function tryReplace(content, search, replace, filePath = "") {
     const originalEnding = detectLineEnding(content);
     const normalizedContent = normalizeLineEnding(content);
@@ -3722,25 +3741,66 @@ ${editedContent}
       }
       if (line.length === 0) return;
       const trimmed = line.trimStart();
-      if (inBlockComment) {
-        const span = document.createElement("span");
-        span.className = "ide-hl-comment";
-        span.textContent = line;
-        container.appendChild(span);
-        if (blockComment && line.includes(blockComment[1])) {
-          inBlockComment = false;
+      let remaining = line;
+      while (remaining.length > 0) {
+        if (inBlockComment) {
+          const endIdx = blockComment ? remaining.indexOf(blockComment[1]) : -1;
+          if (endIdx !== -1) {
+            const commentPart = remaining.slice(0, endIdx + blockComment[1].length);
+            const span = document.createElement("span");
+            span.className = "ide-hl-comment";
+            span.textContent = commentPart;
+            container.appendChild(span);
+            remaining = remaining.slice(endIdx + blockComment[1].length);
+            inBlockComment = false;
+          } else {
+            const span = document.createElement("span");
+            span.className = "ide-hl-comment";
+            span.textContent = remaining;
+            container.appendChild(span);
+            remaining = "";
+          }
+        } else {
+          const startIdx = blockComment ? remaining.indexOf(blockComment[0]) : -1;
+          const lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+          if (lineCommentIdx !== -1 && (startIdx === -1 || lineCommentIdx < startIdx)) {
+            if (lineCommentIdx > 0) {
+              const codePart = remaining.slice(0, lineCommentIdx);
+              const tokens2 = tokenizeLine(codePart, lang);
+              tokens2.forEach((t) => renderToken(t, container));
+            }
+            const span = document.createElement("span");
+            span.className = "ide-hl-comment";
+            span.textContent = remaining.slice(lineCommentIdx);
+            container.appendChild(span);
+            remaining = "";
+            break;
+          }
+          if (startIdx !== -1) {
+            if (startIdx > 0) {
+              const codePart = remaining.slice(0, startIdx);
+              const tokens2 = tokenizeLine(codePart, lang);
+              tokens2.forEach((t) => renderToken(t, container));
+            }
+            remaining = remaining.slice(startIdx);
+            inBlockComment = true;
+          } else {
+            const tokens2 = tokenizeLine(remaining, lang);
+            tokens2.forEach((t) => renderToken(t, container));
+            remaining = "";
+          }
         }
-        return;
       }
-      if (blockComment && trimmed.startsWith(blockComment[0])) {
-        const span = document.createElement("span");
-        span.className = "ide-hl-comment";
-        span.textContent = line;
-        container.appendChild(span);
-        if (!line.includes(blockComment[1]) || line.indexOf(blockComment[0]) >= line.lastIndexOf(blockComment[1])) {
-          inBlockComment = true;
+      return;
+      function renderToken(token, container2) {
+        if (token.type) {
+          const span = document.createElement("span");
+          span.className = `ide-hl-${token.type}`;
+          span.textContent = token.text;
+          container2.appendChild(span);
+        } else {
+          container2.appendChild(document.createTextNode(token.text));
         }
-        return;
       }
       if (commentPrefix && trimmed.startsWith(commentPrefix)) {
         const span = document.createElement("span");
@@ -3974,27 +4034,6 @@ ${editedContent}
     if (!match) return 0;
     return match[1].replace(/\t/g, "    ").length;
   }
-  function isInString(line, col) {
-    let inString = false;
-    let stringChar = "";
-    for (let i = 0; i < col && i < line.length; i++) {
-      const char = line[i];
-      const prevChar = i > 0 ? line[i - 1] : "";
-      if (!inString) {
-        if (char === '"' || char === "'" || char === "`") {
-          inString = true;
-          stringChar = char;
-        } else if (char === "/" && line[i + 1] === "/") {
-          return true;
-        }
-      } else {
-        if (char === stringChar && prevChar !== "\\") {
-          inString = false;
-        }
-      }
-    }
-    return inString;
-  }
   function analyzeFoldingRanges(code, language = "javascript") {
     const lines = code.split("\n");
     const ranges = [];
@@ -4058,9 +4097,23 @@ ${editedContent}
     const bracketPairs = { "{": "}", "[": "]" };
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      let inString = false;
+      let stringChar = "";
       for (let j = 0; j < line.length; j++) {
         const char = line[j];
-        if (isInString(line, j)) continue;
+        if (!inString) {
+          if (char === '"' || char === "'" || char === "`") {
+            inString = true;
+            stringChar = char;
+            continue;
+          }
+          if (char === "/" && line[j + 1] === "/") break;
+        } else {
+          if (char === stringChar && line[j - 1] !== "\\") {
+            inString = false;
+          }
+          continue;
+        }
         if (char === "{" || char === "[") {
           bracketStack.push({ char, line: i, col: j });
         } else if (char === "}" || char === "]") {
@@ -4637,7 +4690,7 @@ ${editedContent}
         const collapsedRange = collapsedStarts.get(i);
         if (collapsedRange) {
           const hiddenCount = collapsedRange.endLine - collapsedRange.startLine;
-          line = line + ` \u22EF ${hiddenCount} lines`;
+          line = line.trimEnd() + ` ... \u27EA ${hiddenCount} lines \u27EB`;
         }
         visibleLines.push(line);
       }
@@ -5581,17 +5634,14 @@ ${content}
           const previewResult2 = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
           if (previewResult2.confirmed) {
             btn.textContent = "\u5E94\u7528\u4E2D...";
-            const normalizedContent2 = content.replace(/\r\n/g, "\n");
-            const normalizedSearch2 = search.replace(/\r\n/g, "\n");
-            const normalizedReplace2 = previewResult2.content.replace(/\r\n/g, "\n");
-            const finalContent2 = normalizedContent2.replace(normalizedSearch2, normalizedReplace2);
-            if (finalContent2 === normalizedContent2) {
+            const replaceResult2 = safeReplace(content, search, previewResult2.content);
+            if (!replaceResult2.success) {
               btn.textContent = "\u274C \u66FF\u6362\u5931\u8D25";
               btn.style.background = "#dc2626";
-              showToast("\u66FF\u6362\u5931\u8D25\uFF1A\u672A\u627E\u5230\u5339\u914D\u5185\u5BB9", "error");
+              showToast(replaceResult2.error, "error");
               return;
             }
-            const success2 = await fs.writeFile(file, finalContent2);
+            const success2 = await fs.writeFile(file, replaceResult2.content);
             if (success2) {
               btn.textContent = "\u2705 \u5DF2\u5E94\u7528";
               btn.style.background = "#059669";
@@ -5630,17 +5680,14 @@ ${content}
     btn.disabled = false;
     btn.style.opacity = "1";
     btn.textContent = "\u5E94\u7528\u4E2D...";
-    const normalizedContent = content.replace(/\r\n/g, "\n");
-    const normalizedSearch = search.replace(/\r\n/g, "\n");
-    const normalizedReplace = previewResult.content.replace(/\r\n/g, "\n");
-    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
-    if (finalContent === normalizedContent) {
+    const replaceResult = safeReplace(content, search, previewResult.content);
+    if (!replaceResult.success) {
       btn.textContent = "\u274C \u66FF\u6362\u5931\u8D25";
       btn.style.background = "#dc2626";
-      showToast("\u66FF\u6362\u5931\u8D25\uFF1A\u672A\u627E\u5230\u5339\u914D\u5185\u5BB9", "error");
+      showToast(replaceResult.error, "error");
       return;
     }
-    const success = await fs.writeFile(file, finalContent);
+    const success = await fs.writeFile(file, replaceResult.content);
     if (success) {
       btn.textContent = "\u2705 \u5DF2\u5E94\u7528";
       btn.title = `\u4E8E ${(/* @__PURE__ */ new Date()).toLocaleTimeString()} \u5E94\u7528\u6210\u529F`;

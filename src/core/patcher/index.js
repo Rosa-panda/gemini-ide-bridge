@@ -16,6 +16,44 @@ import { checkJsSyntax } from './syntax.js';
 // 重新导出供外部使用
 export { checkJsSyntax };
 export { detectLineEnding, restoreLineEnding };
+export { normalizeLineEnding };
+
+/**
+ * 安全的字符串替换（处理换行符差异）
+ * 用于预览对话框中用户编辑后的内容替换
+ * 
+ * @param {string} content - 原始文件内容
+ * @param {string} search - 要查找的内容
+ * @param {string} replace - 替换内容
+ * @returns {{success: boolean, content?: string, error?: string}}
+ */
+export function safeReplace(content, search, replace) {
+    // 标准化换行符
+    const normalizedContent = normalizeLineEnding(content);
+    const normalizedSearch = normalizeLineEnding(search);
+    const normalizedReplace = normalizeLineEnding(replace);
+    
+    // 检查是否能找到匹配
+    if (!normalizedContent.includes(normalizedSearch)) {
+        return { 
+            success: false, 
+            error: '未找到匹配内容（可能是换行符或空白字符差异）' 
+        };
+    }
+    
+    // 执行替换
+    const result = normalizedContent.replace(normalizedSearch, normalizedReplace);
+    
+    // 验证替换是否生效
+    if (result === normalizedContent) {
+        return { 
+            success: false, 
+            error: '替换未生效（search 和 replace 内容相同？）' 
+        };
+    }
+    
+    return { success: true, content: result };
+}
 
 /**
  * 尝试替换（返回结果对象）

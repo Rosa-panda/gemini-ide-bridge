@@ -4,7 +4,7 @@
 
 import { fs } from '../core/fs.js';
 import { parseDelete, parseSearchReplace, parseMultipleFiles, parseRead } from '../core/parser.js';
-import { tryReplace, checkJsSyntax } from '../core/patcher/index.js';
+import { tryReplace, checkJsSyntax, safeReplace } from '../core/patcher/index.js';
 import { markAsApplied, unmarkAsApplied, getPatchKey, checkIfApplied } from '../core/state.js';
 import { showPreviewDialog } from '../dialog/index.js';
 import { showToast, getLanguage, estimateTokens, formatTokens } from '../shared/utils.js';
@@ -147,20 +147,17 @@ async function applyPatch(patch, btn, bar, insertToInput) {
                 const previewResult = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
                 if (previewResult.confirmed) {
                     btn.textContent = '应用中...';
-                    // 关键修复：标准化换行符后再替换
-                    const normalizedContent = content.replace(/\r\n/g, '\n');
-                    const normalizedSearch = search.replace(/\r\n/g, '\n');
-                    const normalizedReplace = previewResult.content.replace(/\r\n/g, '\n');
-                    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
+                    // 使用 safeReplace 统一处理换行符
+                    const replaceResult = safeReplace(content, search, previewResult.content);
                     
-                    if (finalContent === normalizedContent) {
+                    if (!replaceResult.success) {
                         btn.textContent = '❌ 替换失败';
                         btn.style.background = '#dc2626';
-                        showToast('替换失败：未找到匹配内容', 'error');
+                        showToast(replaceResult.error, 'error');
                         return;
                     }
                     
-                    const success = await fs.writeFile(file, finalContent);
+                    const success = await fs.writeFile(file, replaceResult.content);
                     if (success) {
                         btn.textContent = '✅ 已应用';
                         btn.style.background = '#059669';
@@ -205,21 +202,17 @@ async function applyPatch(patch, btn, bar, insertToInput) {
     btn.style.opacity = '1';
     btn.textContent = '应用中...';
     
-    // 关键修复：标准化换行符后再替换，避免 CRLF/LF 不匹配导致替换失败
-    const normalizedContent = content.replace(/\r\n/g, '\n');
-    const normalizedSearch = search.replace(/\r\n/g, '\n');
-    const normalizedReplace = previewResult.content.replace(/\r\n/g, '\n');
-    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
+    // 使用 safeReplace 统一处理换行符
+    const replaceResult = safeReplace(content, search, previewResult.content);
     
-    // 检查替换是否真的生效
-    if (finalContent === normalizedContent) {
+    if (!replaceResult.success) {
         btn.textContent = '❌ 替换失败';
         btn.style.background = '#dc2626';
-        showToast('替换失败：未找到匹配内容', 'error');
+        showToast(replaceResult.error, 'error');
         return;
     }
     
-    const success = await fs.writeFile(file, finalContent);
+    const success = await fs.writeFile(file, replaceResult.content);
     if (success) {
         btn.textContent = '✅ 已应用';
         btn.title = `于 ${new Date().toLocaleTimeString()} 应用成功`;
