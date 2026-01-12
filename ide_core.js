@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T11:51:13.767Z
+ * 自动构建于 2026-01-12T11:52:52.103Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2407,7 +2407,7 @@ ${structure}\`\`\``;
 ${selectedText}
 \`\`\`
 
-\u8BF7\u5E2E\u6211\u5206\u6790\u8FD9\u6BB5\u4EE3\u7801\uFF0C\u6216\u8005\u544A\u8BC9\u6211\u4F60\u60F3\u8BA9\u6211\u505A\u4EC0\u4E48\u3002`;
+\u8BF7\u5E2E\u6211\u5206\u6790\u8FD9\u6BB5\u4EE3\u7801\u3002`;
               const result = insertToInput(prompt2);
               if (result.success) {
                 showToast("\u5DF2\u53D1\u9001\u5230 Gemini");

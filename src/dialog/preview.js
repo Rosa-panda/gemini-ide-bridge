@@ -687,7 +687,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
 ${selectedText}
 \`\`\`
 
-请帮我分析这段代码，或者告诉我你想让我做什么。`;
+请帮我分析这段代码。`;
                         
                         const result = insertToInput(prompt);
                         if (result.success) {
