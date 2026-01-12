@@ -475,7 +475,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             const panelHeader = document.createElement('div');
             if (mode === 'diff') {
                 panelHeader.textContent = side === 'left' 
-                    ? '� 原始(代码 (SEARCH)' 
+                    ? '🔴 原始代码 (SEARCH)' 
                     : '🟢 修改后代码 (REPLACE)';
             } else {
                 panelHeader.textContent = side === 'left' 

@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T11:40:50.391Z
+ * 自动构建于 2026-01-12T11:43:27.205Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -2234,7 +2234,7 @@ ${structure}\`\`\``;
         });
         const panelHeader = document.createElement("div");
         if (mode === "diff") {
-          panelHeader.textContent = side === "left" ? "\uFFFD \u539F\u59CB(\u4EE3\u7801 (SEARCH)" : "\u{1F7E2} \u4FEE\u6539\u540E\u4EE3\u7801 (REPLACE)";
+          panelHeader.textContent = side === "left" ? "\u{1F534} \u539F\u59CB\u4EE3\u7801 (SEARCH)" : "\u{1F7E2} \u4FEE\u6539\u540E\u4EE3\u7801 (REPLACE)";
         } else {
           panelHeader.textContent = side === "left" ? "\u{1F534} \u539F\u59CB\u4EE3\u7801 (\u53EA\u8BFB)" : "\u{1F7E2} \u4FEE\u6539\u540E\u4EE3\u7801 (\u53EF\u7F16\u8F91) \u270F\uFE0F";
         }
