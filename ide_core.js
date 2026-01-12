@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T11:32:07.647Z
+ * 自动构建于 2026-01-12T11:40:50.391Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -792,7 +792,7 @@ var IDE_BRIDGE = (() => {
   function parseSearchReplace(text) {
     var _a;
     const patches = [];
-    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)(?:\n?^>{6,10} REPLACE\s*$|$)/gm;
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
     let match;
     while ((match = regex.exec(text)) !== null) {
       patches.push({
