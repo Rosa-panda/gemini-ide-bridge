@@ -19,6 +19,11 @@
 - **强制预览** - 语法检查失败时可强制预览并应用
 - **版本控制** - IndexedDB 持久化，每文件 10 个历史版本
 - **主题适配** - MutationObserver 实时跟随 Gemini 主题切换
+- **内嵌编辑器** - VSCode 风格，语法高亮、小地图、代码折叠、30+ 语言支持
+- **自动闭合括号** - 智能上下文判断，支持退格删除和跳过
+- **选中文本询问 AI** - 编辑器内选中代码，一键发送给 Gemini 分析
+- **项目骨架图** - 一键生成项目结构发送给 AI，快速了解项目
+- **Diff 询问 AI** - 变更预览时可询问 AI 分析代码变更
 
 ## 💡 核心发现
 
@@ -110,6 +115,7 @@ gemini-ide-bridge/
     │   ├── state.js       # 补丁应用状态持久化（localStorage）
     │   ├── deps.js        # 依赖分析（JS/Python/C 的 import 解析）
     │   ├── watcher.js     # 文件变化监听（轮询 + 智能优化）
+    │   ├── skeleton.js    # 项目骨架图生成（基于 AST 思想）
     │   │
     │   └── patcher/       # 补丁应用引擎
     │       ├── index.js   # 补丁入口，tryReplace 主函数
@@ -168,6 +174,7 @@ gemini-ide-bridge/
 | `state.js` | 记录已应用的补丁，防止重复应用 |
 | `deps.js` | 分析文件依赖关系，支持 JS/TS/Python/C++ |
 | `watcher.js` | 文件变化监听（轮询 + 页面可见性 + requestIdleCallback + 防抖） |
+| `skeleton.js` | 项目骨架图生成，基于 AST 思想提取代码结构 |
 
 ### core/patcher/ - 补丁引擎
 | 文件 | 功能 |
