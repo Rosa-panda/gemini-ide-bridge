@@ -738,6 +738,7 @@ ${selectedText}
                 // Diff 模式：左右都渲染 diff 高亮
                 let leftLineNum = startLine;
                 let rightLineNum = startLine;
+                let lastWasInsert = false;  // 追踪上一行是否是 insert
 
                 lineDiffs.forEach(diff => {
                     const leftLineDiv = document.createElement('div');
@@ -752,6 +753,7 @@ ${selectedText}
                         rightCodeDiv.textContent = diff.newLine;
                         leftCodeDiv.style.opacity = colors.equalOpacity;
                         rightCodeDiv.style.opacity = colors.equalOpacity;
+                        lastWasInsert = false;
                     } else if (diff.type === 'delete') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         rightLineDiv.textContent = '';
@@ -760,14 +762,29 @@ ${selectedText}
                         leftCodeDiv.style.color = colors.deleteText;
                         rightCodeDiv.style.backgroundColor = colors.emptyBg;
                         rightCodeDiv.style.minHeight = '1.6em';
+                        lastWasInsert = false;
                     } else if (diff.type === 'insert') {
-                        leftLineDiv.textContent = '';
+                        // 右边正常显示新增行
                         rightLineDiv.textContent = String(rightLineNum++);
-                        leftCodeDiv.style.backgroundColor = colors.emptyBg;
-                        leftCodeDiv.style.minHeight = '1.6em';
                         rightCodeDiv.textContent = diff.newLine;
                         rightCodeDiv.style.backgroundColor = colors.insertBg;
                         rightCodeDiv.style.color = colors.insertText;
+                        
+                        // 左边：连续 insert 只显示一行空白占位
+                        if (!lastWasInsert) {
+                            leftLineDiv.textContent = '...';
+                            leftLineDiv.style.color = 'var(--ide-text-secondary)';
+                            leftLineDiv.style.fontSize = '10px';
+                            leftCodeDiv.textContent = '// ↓ 新增内容';
+                            leftCodeDiv.style.color = 'var(--ide-text-secondary)';
+                            leftCodeDiv.style.fontStyle = 'italic';
+                            leftCodeDiv.style.backgroundColor = colors.emptyBg;
+                        } else {
+                            // 连续 insert，左边不添加任何内容
+                            leftLineDiv.style.display = 'none';
+                            leftCodeDiv.style.display = 'none';
+                        }
+                        lastWasInsert = true;
                     } else if (diff.type === 'modify') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         rightLineDiv.textContent = String(rightLineNum++);
@@ -776,6 +793,7 @@ ${selectedText}
                         rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors, diff.newLine));
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                         rightCodeDiv.style.backgroundColor = colors.insertBg;
+                        lastWasInsert = false;
                     }
 
                     leftPanel.lineNumbers.appendChild(leftLineDiv);
@@ -786,6 +804,7 @@ ${selectedText}
             } else {
                 // 编辑模式：左侧保持 diff 高亮，右侧可编辑
                 let leftLineNum = startLine;
+                let lastWasInsert = false;
 
                 lineDiffs.forEach(diff => {
                     const leftLineDiv = document.createElement('div');
@@ -795,20 +814,34 @@ ${selectedText}
                         leftLineDiv.textContent = String(leftLineNum++);
                         leftCodeDiv.textContent = diff.oldLine;
                         leftCodeDiv.style.opacity = colors.equalOpacity;
+                        lastWasInsert = false;
                     } else if (diff.type === 'delete') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         leftCodeDiv.textContent = diff.oldLine;
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
                         leftCodeDiv.style.color = colors.deleteText;
+                        lastWasInsert = false;
                     } else if (diff.type === 'insert') {
-                        leftLineDiv.textContent = '';
-                        leftCodeDiv.style.backgroundColor = colors.emptyBg;
-                        leftCodeDiv.style.minHeight = '1.6em';
+                        // 连续 insert 只显示一行提示
+                        if (!lastWasInsert) {
+                            leftLineDiv.textContent = '...';
+                            leftLineDiv.style.color = 'var(--ide-text-secondary)';
+                            leftLineDiv.style.fontSize = '10px';
+                            leftCodeDiv.textContent = '// ↓ 新增内容';
+                            leftCodeDiv.style.color = 'var(--ide-text-secondary)';
+                            leftCodeDiv.style.fontStyle = 'italic';
+                            leftCodeDiv.style.backgroundColor = colors.emptyBg;
+                        } else {
+                            leftLineDiv.style.display = 'none';
+                            leftCodeDiv.style.display = 'none';
+                        }
+                        lastWasInsert = true;
                     } else if (diff.type === 'modify') {
                         leftLineDiv.textContent = String(leftLineNum++);
                         const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
                         leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors, diff.oldLine));
                         leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                        lastWasInsert = false;
                     }
 
                     leftPanel.lineNumbers.appendChild(leftLineDiv);
