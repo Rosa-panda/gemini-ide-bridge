@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T09:54:07.726Z
+ * 自动构建于 2026-01-12T11:32:07.647Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -792,7 +792,7 @@ var IDE_BRIDGE = (() => {
   function parseSearchReplace(text) {
     var _a;
     const patches = [];
-    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)\n?^>{6,10} REPLACE\s*$/gm;
+    const regex = /^<{6,10} SEARCH(?:\s*\[([^\]]+)\]|\s+([^\s\n]+))?(?:\s+\d+-\d+)?\s*?\n([\s\S]*?)\n^={6,10}\s*?\n([\s\S]*?)(?:\n?^>{6,10} REPLACE\s*$|$)/gm;
     let match;
     while ((match = regex.exec(text)) !== null) {
       patches.push({
@@ -1143,13 +1143,9 @@ var IDE_BRIDGE = (() => {
     if (filePath && !jsExts.includes(ext)) {
       return { valid: true };
     }
-    const { result, finalStack } = stripCommentsAndStrings(code);
-    if (finalStack.length > 1) {
-      const lastMode = finalStack[finalStack.length - 1];
-      return {
-        valid: false,
-        error: lastMode === "T" ? "\u672A\u95ED\u5408\u7684\u6A21\u677F\u5B57\u7B26\u4E32" : "\u63D2\u503C\u8868\u8FBE\u5F0F (${}) \u672A\u5B8C\u6210"
-      };
+    const { result, valid, error } = stripCommentsAndStrings(code);
+    if (!valid) {
+      return { valid: false, error };
     }
     return checkBrackets(result);
   }
@@ -1157,25 +1153,26 @@ var IDE_BRIDGE = (() => {
     let result = "";
     let i = 0;
     const len = code.length;
-    const stack = ["I"];
+    const stack = [];
     const DOLLAR = String.fromCharCode(36);
+    const inTemplate = () => stack.length > 0 && stack[stack.length - 1].type === "T";
+    const inInterpolation = () => stack.length > 0 && stack[stack.length - 1].type === "I";
     const canBeRegex = () => {
       let j = result.length - 1;
       while (j >= 0 && /\s/.test(result[j])) j--;
       if (j < 0) return true;
       const lastChar = result[j];
-      return /[=(:,;\[!&|?{}<>+\-*%^~()]/.test(lastChar) || result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
+      return /[=(:,;\[!&|?{}<>+\-*%^~]/.test(lastChar) || result.slice(Math.max(0, j - 6), j + 1).match(/(?:return|yield|await|typeof|void|delete|throw|case|in)$/);
     };
     while (i < len) {
       const char = code[i];
       const next = code[i + 1];
-      const currentMode = stack[stack.length - 1];
-      if (currentMode === "T") {
+      if (inTemplate()) {
         if (char === "`") {
           stack.pop();
           i++;
         } else if (char === DOLLAR && next === "{") {
-          stack.push("I");
+          stack.push({ type: "I", braceDepth: 1 });
           result += "{";
           i += 2;
         } else if (char === "\\") {
@@ -1187,9 +1184,65 @@ var IDE_BRIDGE = (() => {
         }
         continue;
       }
+      if (inInterpolation()) {
+        const state = stack[stack.length - 1];
+        if (char === "{") {
+          state.braceDepth++;
+          result += "{";
+          i++;
+          continue;
+        }
+        if (char === "}") {
+          state.braceDepth--;
+          if (state.braceDepth === 0) {
+            stack.pop();
+          }
+          result += "}";
+          i++;
+          continue;
+        }
+        if (char === "`") {
+          stack.push({ type: "T", braceDepth: 0 });
+          i++;
+          continue;
+        }
+        if (char === '"' || char === "'") {
+          const quote = char;
+          i++;
+          while (i < len && code[i] !== quote) {
+            if (code[i] === "\\") i++;
+            if (i < len && code[i] === "\n") result += "\n";
+            i++;
+          }
+          i++;
+          continue;
+        }
+        if (char === "/" && next === "/") {
+          i += 2;
+          while (i < len && code[i] !== "\n") i++;
+          if (i < len) result += "\n";
+          continue;
+        }
+        if (char === "/" && next === "*") {
+          i += 2;
+          while (i < len - 1 && !(code[i] === "*" && code[i + 1] === "/")) {
+            if (code[i] === "\n") result += "\n";
+            i++;
+          }
+          i += 2;
+          continue;
+        }
+        result += char;
+        i++;
+        continue;
+      }
       if (char === "/" && next === "/") {
         i += 2;
         while (i < len && code[i] !== "\n") i++;
+        if (i < len) {
+          result += "\n";
+          i++;
+        }
         continue;
       }
       if (char === "/" && next === "*") {
@@ -1201,58 +1254,49 @@ var IDE_BRIDGE = (() => {
         i += 2;
         continue;
       }
-      if (char === '"' || char === "'") {
-        const quote = char;
-        i++;
-        while (i < len && code[i] !== quote) {
-          if (code[i] === "\\") {
-            i++;
-            if (i < len && code[i] === "\n") result += "\n";
-          } else if (code[i] === "\n") {
-            result += "\n";
-          }
-          i++;
-        }
-        i++;
-        continue;
-      }
       if (char === "/" && next !== "/" && next !== "*" && canBeRegex()) {
         i++;
         let inClass = false;
         while (i < len) {
-          if (code[i] === "/" && !inClass) break;
-          if (code[i] === "\\") {
-            i++;
-          } else if (code[i] === "[") {
-            inClass = true;
-          } else if (code[i] === "]") {
-            inClass = false;
-          }
+          const c = code[i];
+          if (c === "/" && !inClass) break;
+          if (c === "\\") i++;
+          else if (c === "[") inClass = true;
+          else if (c === "]") inClass = false;
           i++;
         }
         i++;
         while (i < len && /[gimsuy]/.test(code[i])) i++;
         continue;
       }
-      if (char === "{") {
-        stack.push("I");
-        result += "{";
+      if (char === '"' || char === "'") {
+        const quote = char;
         i++;
-      } else if (char === "}") {
-        if (stack.length > 1 && currentMode === "I") {
-          stack.pop();
+        while (i < len && code[i] !== quote) {
+          if (code[i] === "\\") i++;
+          if (i < len && code[i] === "\n") result += "\n";
+          i++;
         }
-        result += "}";
         i++;
-      } else if (char === "`") {
-        stack.push("T");
-        i++;
-      } else {
-        result += char;
-        i++;
+        continue;
       }
+      if (char === "`") {
+        stack.push({ type: "T", braceDepth: 0 });
+        i++;
+        continue;
+      }
+      result += char;
+      i++;
     }
-    return { result, finalStack: stack };
+    if (stack.length > 0) {
+      const lastState = stack[stack.length - 1];
+      return {
+        result,
+        valid: false,
+        error: lastState.type === "T" ? "\u672A\u95ED\u5408\u7684\u6A21\u677F\u5B57\u7B26\u4E32" : "\u63D2\u503C\u8868\u8FBE\u5F0F (${}) \u672A\u5B8C\u6210"
+      };
+    }
+    return { result, valid: true };
   }
   function checkBrackets(code) {
     const stack = [];
@@ -6784,22 +6828,17 @@ ${content}
       if (prevLine.trim().startsWith("/**") || prevLine.trim().startsWith("///")) {
         result.push(prevLine);
       }
-      if (c.startsWith("import ") || c.startsWith("export ")) {
-        result.push(line);
-        return;
-      }
       if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
         if (currentClass) {
           result.push(" ".repeat(currentIndent) + "}");
           result.push("");
         }
-        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
+        currentClass = ((_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1]) || "Default";
         currentIndent = sig.indent;
-        result.push(line.split("{")[0] + "{");
+        result.push(line.split("{")[0].trim() + " {");
         return;
       }
-      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || // 方法
-      c.match(/^\w+\s*=\s*(async\s*)?\([^)]*\)\s*=>/)) {
+      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
         let signature = line.split("{")[0].split("=>")[0].trim();
         if (currentClass) {
           result.push(" ".repeat(sig.indent) + signature + " { /* ... */ }");
@@ -6808,7 +6847,7 @@ ${content}
         }
         return;
       }
-      if (c.startsWith("interface ") || c.startsWith("type ") || c.startsWith("export interface ") || c.startsWith("export type ")) {
+      if (c.startsWith("import ") || c.startsWith("export ") || c.startsWith("interface ") || c.startsWith("type ")) {
         result.push(line);
         return;
       }

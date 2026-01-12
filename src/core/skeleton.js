@@ -38,46 +38,36 @@ function generateJsSkeleton(lines, sigs) {
             result.push(prevLine);
         }
         
-        // 导入/导出语句
-        if (c.startsWith('import ') || c.startsWith('export ')) {
-            result.push(line);
-            return;
-        }
-        
-        // 类定义 (放宽匹配条件，支持 export default, abstract 等)
+        // 1. 类定义 (优先处理，支持 export default, abstract 等)
         if (c.includes('class ') && (c.includes('export ') || c.startsWith('class ') || c.startsWith('abstract '))) {
             if (currentClass) {
-                // 关闭上一个类
                 result.push(' '.repeat(currentIndent) + '}');
                 result.push('');
             }
-            currentClass = c.match(/class\s+(\w+)/)?.[1];
+            currentClass = c.match(/class\s+(\w+)/)?.[1] || 'Default';
             currentIndent = sig.indent;
-            result.push(line.split('{')[0] + '{');
+            result.push(line.split('{')[0].trim() + ' {');
             return;
         }
         
-        // 函数定义（包括箭头函数）
+        // 2. 函数定义（包括顶层函数、类方法和箭头函数）
         if (c.startsWith('function ') || c.startsWith('async function ') || 
             c.startsWith('export function ') || c.startsWith('export async function ') ||
-            c.match(/^\w+\s*\([^)]*\)\s*{/) || // 方法
-            c.match(/^\w+\s*=\s*(async\s*)?\([^)]*\)\s*=>/)) { // 箭头函数
+            c.match(/^\w+\s*\([^)]*\)\s*{/) || 
+            c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
             
-            // 提取函数签名
             let signature = line.split('{')[0].split('=>')[0].trim();
             if (currentClass) {
-                // 类方法，保持缩进
                 result.push(' '.repeat(sig.indent) + signature + ' { /* ... */ }');
             } else {
-                // 顶层函数
                 result.push(signature + ' { /* ... */ }');
             }
             return;
         }
-        
-        // TypeScript 类型定义
-        if (c.startsWith('interface ') || c.startsWith('type ') || 
-            c.startsWith('export interface ') || c.startsWith('export type ')) {
+
+        // 3. 导入/导出/类型定义 (非类和函数的其他声明)
+        if (c.startsWith('import ') || c.startsWith('export ') || 
+            c.startsWith('interface ') || c.startsWith('type ')) {
             result.push(line);
             return;
         }
