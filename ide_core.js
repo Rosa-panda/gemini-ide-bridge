@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T12:18:41.163Z
+ * 自动构建于 2026-01-12T12:27:30.269Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -5581,7 +5581,16 @@ ${content}
           const previewResult2 = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
           if (previewResult2.confirmed) {
             btn.textContent = "\u5E94\u7528\u4E2D...";
-            const finalContent2 = content.replace(search, previewResult2.content);
+            const normalizedContent2 = content.replace(/\r\n/g, "\n");
+            const normalizedSearch2 = search.replace(/\r\n/g, "\n");
+            const normalizedReplace2 = previewResult2.content.replace(/\r\n/g, "\n");
+            const finalContent2 = normalizedContent2.replace(normalizedSearch2, normalizedReplace2);
+            if (finalContent2 === normalizedContent2) {
+              btn.textContent = "\u274C \u66FF\u6362\u5931\u8D25";
+              btn.style.background = "#dc2626";
+              showToast("\u66FF\u6362\u5931\u8D25\uFF1A\u672A\u627E\u5230\u5339\u914D\u5185\u5BB9", "error");
+              return;
+            }
             const success2 = await fs.writeFile(file, finalContent2);
             if (success2) {
               btn.textContent = "\u2705 \u5DF2\u5E94\u7528";
@@ -5621,7 +5630,16 @@ ${content}
     btn.disabled = false;
     btn.style.opacity = "1";
     btn.textContent = "\u5E94\u7528\u4E2D...";
-    const finalContent = content.replace(search, previewResult.content);
+    const normalizedContent = content.replace(/\r\n/g, "\n");
+    const normalizedSearch = search.replace(/\r\n/g, "\n");
+    const normalizedReplace = previewResult.content.replace(/\r\n/g, "\n");
+    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
+    if (finalContent === normalizedContent) {
+      btn.textContent = "\u274C \u66FF\u6362\u5931\u8D25";
+      btn.style.background = "#dc2626";
+      showToast("\u66FF\u6362\u5931\u8D25\uFF1A\u672A\u627E\u5230\u5339\u914D\u5185\u5BB9", "error");
+      return;
+    }
     const success = await fs.writeFile(file, finalContent);
     if (success) {
       btn.textContent = "\u2705 \u5DF2\u5E94\u7528";

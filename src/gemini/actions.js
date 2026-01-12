@@ -147,8 +147,19 @@ async function applyPatch(patch, btn, bar, insertToInput) {
                 const previewResult = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
                 if (previewResult.confirmed) {
                     btn.textContent = '应用中...';
-                    // 使用用户编辑后的内容
-                    const finalContent = content.replace(search, previewResult.content);
+                    // 关键修复：标准化换行符后再替换
+                    const normalizedContent = content.replace(/\r\n/g, '\n');
+                    const normalizedSearch = search.replace(/\r\n/g, '\n');
+                    const normalizedReplace = previewResult.content.replace(/\r\n/g, '\n');
+                    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
+                    
+                    if (finalContent === normalizedContent) {
+                        btn.textContent = '❌ 替换失败';
+                        btn.style.background = '#dc2626';
+                        showToast('替换失败：未找到匹配内容', 'error');
+                        return;
+                    }
+                    
                     const success = await fs.writeFile(file, finalContent);
                     if (success) {
                         btn.textContent = '✅ 已应用';
@@ -193,8 +204,21 @@ async function applyPatch(patch, btn, bar, insertToInput) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.textContent = '应用中...';
-    // 使用用户编辑后的内容
-    const finalContent = content.replace(search, previewResult.content);
+    
+    // 关键修复：标准化换行符后再替换，避免 CRLF/LF 不匹配导致替换失败
+    const normalizedContent = content.replace(/\r\n/g, '\n');
+    const normalizedSearch = search.replace(/\r\n/g, '\n');
+    const normalizedReplace = previewResult.content.replace(/\r\n/g, '\n');
+    const finalContent = normalizedContent.replace(normalizedSearch, normalizedReplace);
+    
+    // 检查替换是否真的生效
+    if (finalContent === normalizedContent) {
+        btn.textContent = '❌ 替换失败';
+        btn.style.background = '#dc2626';
+        showToast('替换失败：未找到匹配内容', 'error');
+        return;
+    }
+    
     const success = await fs.writeFile(file, finalContent);
     if (success) {
         btn.textContent = '✅ 已应用';
