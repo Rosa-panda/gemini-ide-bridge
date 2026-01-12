@@ -234,8 +234,18 @@ gemini-ide-bridge/
     │
     ├── dialog/            # 对话框模块
     │   ├── index.js       # 对话框入口
+    │   ├── editor.js      # 编辑器对话框入口
     │   ├── preview.js     # 变更预览对话框（Diff 展示）
     │   └── history.js     # 历史版本对话框（版本列表、回退）
+    │
+    ├── editor/            # 内嵌编辑器模块（VSCode 风格）
+    │   ├── index.js       # 编辑器主入口，组装各组件
+    │   ├── core.js        # 核心逻辑（UndoStack、光标操作）
+    │   ├── highlight.js   # 语法高亮（DOM tokenizer）
+    │   ├── languages.js   # 语言定义（30+语言关键字）
+    │   ├── minimap.js     # 小地图组件（Canvas绘制）
+    │   ├── folding.js     # 代码折叠（括号匹配+缩进检测）
+    │   └── styles.js      # 样式模块（CSS集中管理）
     │
     └── gemini/            # Gemini 交互模块
         ├── index.js       # Gemini 类入口，组装与导出
@@ -288,8 +298,20 @@ gemini-ide-bridge/
 | 文件 | 功能 |
 |------|------|
 | `index.js` | 对话框模块入口 |
+| `editor.js` | 编辑器对话框入口（调用 editor 模块） |
 | `preview.js` | Side-by-Side Diff 预览对话框，行级 + 字符级差异高亮 |
 | `history.js` | 历史版本列表，支持预览和回退到指定版本 |
+
+### editor/ - 内嵌编辑器（VSCode 风格）
+| 文件 | 功能 |
+|------|------|
+| `index.js` | 编辑器主入口，组装各组件，窗口拖拽/调整大小 |
+| `core.js` | 核心逻辑（UndoStack 撤销栈、光标位置计算） |
+| `highlight.js` | 语法高亮（DOM tokenizer，绕过 Trusted Types） |
+| `languages.js` | 语言定义（30+ 语言关键字、字面量、内置函数） |
+| `minimap.js` | 小地图组件（Canvas 绘制，视口指示器可拖拽） |
+| `folding.js` | 代码折叠（括号匹配 + 缩进检测，支持嵌套） |
+| `styles.js` | 样式模块（CSS 集中管理） |
 
 ### gemini/ - Gemini 交互
 | 文件 | 功能 |
