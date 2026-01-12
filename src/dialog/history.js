@@ -29,6 +29,17 @@ export function showHistoryDialog(filePath) {
 
         const existing = document.getElementById('ide-history-dialog');
         if (existing) existing.remove();
+        
+        // 背景遮罩
+        const backdrop = document.createElement('div');
+        backdrop.id = 'ide-history-backdrop';
+        Object.assign(backdrop.style, {
+            position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.5)',
+            zIndex: '2147483648', animation: 'ideFadeIn 0.2s ease-out'
+        });
+        
+        const closeAll = () => { backdrop.remove(); dialog.remove(); resolve(null); };
+        backdrop.onclick = closeAll;
 
         const dialog = document.createElement('div');
         dialog.id = 'ide-history-dialog';
@@ -38,15 +49,33 @@ export function showHistoryDialog(filePath) {
             background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
             borderRadius: '12px', padding: '20px', zIndex: '2147483649',
             width: '400px', maxHeight: '60vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)'
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', animation: 'ideScaleIn 0.2s ease-out'
         });
+        dialog.onclick = (e) => e.stopPropagation();
 
         const header = document.createElement('div');
-        header.textContent = '📜 历史回溯 - ' + filePath.split('/').pop();
         Object.assign(header.style, {
-            fontWeight: 'bold', marginBottom: '16px', color: 'var(--ide-text)',
-            paddingBottom: '12px', borderBottom: '1px solid var(--ide-border)', fontSize: '15px'
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--ide-border)'
         });
+        
+        const title = document.createElement('span');
+        title.textContent = '📜 历史回溯 - ' + filePath.split('/').pop();
+        Object.assign(title.style, { fontWeight: 'bold', color: 'var(--ide-text)', fontSize: '15px' });
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕';
+        closeBtn.title = '关闭';
+        Object.assign(closeBtn.style, {
+            background: 'transparent', border: 'none', color: 'var(--ide-text-secondary)',
+            fontSize: '16px', cursor: 'pointer', padding: '2px 6px'
+        });
+        closeBtn.onmouseover = () => closeBtn.style.color = 'var(--ide-text)';
+        closeBtn.onmouseout = () => closeBtn.style.color = 'var(--ide-text-secondary)';
+        closeBtn.onclick = closeAll;
+        
+        header.appendChild(title);
+        header.appendChild(closeBtn);
         dialog.appendChild(header);
 
         const list = document.createElement('div');
@@ -111,7 +140,7 @@ export function showHistoryDialog(filePath) {
                 const result = await fs.revertToVersion(filePath, v.timestamp);
                 if (result.success) {
                     showToast('✅ 已回退');
-                    dialog.remove();
+                    closeAll();
                 }
             };
 
@@ -124,24 +153,13 @@ export function showHistoryDialog(filePath) {
         });
         dialog.appendChild(list);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '关闭';
-        Object.assign(closeBtn.style, {
-            marginTop: '16px', width: '100%', background: 'transparent',
-            color: 'var(--ide-text-secondary)', border: '1px solid var(--ide-border)', 
-            padding: '10px', borderRadius: '6px', cursor: 'pointer'
-        });
-        closeBtn.onmouseover = () => closeBtn.style.color = 'var(--ide-text)';
-        closeBtn.onmouseout = () => closeBtn.style.color = 'var(--ide-text-secondary)';
-        closeBtn.onclick = () => { dialog.remove(); resolve(null); };
-        dialog.appendChild(closeBtn);
-
+        document.body.appendChild(backdrop);
         document.body.appendChild(dialog);
     });
 }
 
 /**
- * 历史对比视图
+ * 历史对比视图（带 Diff 高亮）
  */
 export function showHistoryDiff(filePath, version, currentContent) {
     const backdrop = document.createElement('div');
@@ -150,6 +168,10 @@ export function showHistoryDiff(filePath, version, currentContent) {
         backdropFilter: 'blur(4px)', zIndex: '2147483650',
         animation: 'ideFadeIn 0.2s ease-out'
     });
+    
+    // 点击背景关闭
+    const closeAll = () => { backdrop.remove(); container.remove(); };
+    backdrop.onclick = closeAll;
 
     const container = document.createElement('div');
     Object.assign(container.style, {
@@ -161,6 +183,8 @@ export function showHistoryDiff(filePath, version, currentContent) {
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', zIndex: '2147483651',
         animation: 'ideScaleIn 0.2s ease-out'
     });
+    // 阻止点击容器时关闭
+    container.onclick = (e) => e.stopPropagation();
 
     const header = document.createElement('div');
     Object.assign(header.style, {
@@ -173,53 +197,179 @@ export function showHistoryDiff(filePath, version, currentContent) {
     Object.assign(titleText.style, { fontWeight: '600', color: 'var(--ide-text)', fontSize: '16px' });
     
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '关闭预览';
-    closeBtn.className = 'ide-btn';
-    closeBtn.onclick = () => { backdrop.remove(); container.remove(); };
+    closeBtn.textContent = '✕';
+    closeBtn.title = '关闭 (点击空白处也可关闭)';
+    Object.assign(closeBtn.style, {
+        background: 'transparent', border: 'none', color: 'var(--ide-text-secondary)',
+        fontSize: '18px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px'
+    });
+    closeBtn.onmouseover = () => closeBtn.style.color = 'var(--ide-text)';
+    closeBtn.onmouseout = () => closeBtn.style.color = 'var(--ide-text-secondary)';
+    closeBtn.onclick = closeAll;
     
     header.appendChild(titleText);
     header.appendChild(closeBtn);
 
+    // Diff 算法（行级）
+    const computeLineDiff = (oldLines, newLines) => {
+        const m = oldLines.length, n = newLines.length;
+        const dp = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                if (oldLines[i - 1] === newLines[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1];
+                } else {
+                    dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+                }
+            }
+        }
+        const diffs = [];
+        let i = m, j = n;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+                diffs.unshift({ type: 'equal', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
+                i--; j--;
+            } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
+                diffs.unshift({ type: 'modify', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
+                i--; j--;
+            } else if (i > 0 && (j === 0 || dp[i][j] === dp[i - 1][j] + 1)) {
+                diffs.unshift({ type: 'delete', oldLine: oldLines[i - 1] });
+                i--;
+            } else {
+                diffs.unshift({ type: 'insert', newLine: newLines[j - 1] });
+                j--;
+            }
+        }
+        return diffs;
+    };
+
+    // 主题配色
+    const isDark = document.body.style.backgroundColor?.includes('rgb(') || 
+                   getComputedStyle(document.body).backgroundColor !== 'rgb(255, 255, 255)';
+    const colors = isDark ? {
+        deleteBg: '#4b1818', deleteText: '#ffa8a8',
+        insertBg: '#1a4d1a', insertText: '#a8ffa8',
+        emptyBg: 'rgba(0, 0, 0, 0.1)', equalOpacity: '0.6'
+    } : {
+        deleteBg: '#ffd7d5', deleteText: '#82071e',
+        insertBg: '#d1f4d1', insertText: '#055d20',
+        emptyBg: '#f6f8fa', equalOpacity: '0.5'
+    };
+
+    // 计算 diff
+    const oldLines = version.content.split('\n');
+    const newLines = currentContent.split('\n');
+    const lineDiffs = computeLineDiff(oldLines, newLines);
+
     const body = document.createElement('div');
     Object.assign(body.style, {
-        flex: '1', display: 'flex', overflow: 'hidden',
-        background: 'var(--ide-hint-bg)'
+        flex: '1', display: 'flex', overflow: 'hidden'
     });
 
-    const createPane = (title, content, bgColor, borderColor) => {
+    // 创建面板
+    const createPane = (side) => {
         const pane = document.createElement('div');
         Object.assign(pane.style, {
             flex: '1', display: 'flex', flexDirection: 'column',
-            borderRight: '1px solid var(--ide-border)', minWidth: '0'
+            borderRight: side === 'left' ? '1px solid var(--ide-border)' : 'none',
+            overflow: 'hidden', background: 'var(--ide-hint-bg)'
         });
 
         const paneHeader = document.createElement('div');
-        paneHeader.textContent = title;
+        paneHeader.textContent = side === 'left' 
+            ? `🕰️ 历史版本 (${formatTime(version.timestamp)})` 
+            : '💻 当前本地版本';
         Object.assign(paneHeader.style, {
-            padding: '8px 16px', fontSize: '12px', fontWeight: 'bold',
-            background: bgColor, color: borderColor,
-            borderBottom: `1px solid ${borderColor}`, opacity: '0.9'
+            padding: '10px 16px', fontSize: '12px', fontWeight: 'bold',
+            background: side === 'left' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+            color: side === 'left' ? '#eab308' : '#3b82f6',
+            borderBottom: '1px solid var(--ide-border)'
         });
 
-        const pre = document.createElement('pre');
-        pre.textContent = content;
-        Object.assign(pre.style, {
-            flex: '1', margin: '0', padding: '16px', overflow: 'auto',
-            fontFamily: '"JetBrains Mono", Consolas, monospace', fontSize: '13px',
-            lineHeight: '1.5', color: 'var(--ide-text)', whiteSpace: 'pre'
+        const codeContainer = document.createElement('div');
+        Object.assign(codeContainer.style, {
+            flex: '1', display: 'flex', overflow: 'auto',
+            fontFamily: '"JetBrains Mono", Consolas, monospace',
+            fontSize: '13px', lineHeight: '1.6'
+        });
+
+        const lineNumbers = document.createElement('div');
+        Object.assign(lineNumbers.style, {
+            padding: '16px 12px 16px 16px', textAlign: 'right',
+            color: 'var(--ide-text-secondary)', userSelect: 'none',
+            borderRight: '1px solid var(--ide-border)',
+            background: 'rgba(0, 0, 0, 0.1)', minWidth: '50px'
+        });
+
+        const codeArea = document.createElement('div');
+        Object.assign(codeArea.style, {
+            flex: '1', padding: '16px', whiteSpace: 'pre',
+            color: 'var(--ide-text)'
         });
 
         pane.appendChild(paneHeader);
-        pane.appendChild(pre);
-        return pane;
+        codeContainer.appendChild(lineNumbers);
+        codeContainer.appendChild(codeArea);
+        pane.appendChild(codeContainer);
+
+        return { pane, lineNumbers, codeArea };
     };
 
-    const leftPane = createPane(`🕰️ 历史版本 (${formatTime(version.timestamp)})`, version.content, 'rgba(234, 179, 8, 0.1)', '#eab308');
-    const rightPane = createPane('💻 当前本地版本', currentContent, 'rgba(59, 130, 246, 0.1)', '#3b82f6');
-    rightPane.style.borderRight = 'none';
+    const leftPane = createPane('left');
+    const rightPane = createPane('right');
 
-    body.appendChild(leftPane);
-    body.appendChild(rightPane);
+    // 渲染 diff
+    let leftLineNum = 1, rightLineNum = 1;
+    lineDiffs.forEach(diff => {
+        const leftLineDiv = document.createElement('div');
+        const rightLineDiv = document.createElement('div');
+        const leftCodeDiv = document.createElement('div');
+        const rightCodeDiv = document.createElement('div');
+
+        if (diff.type === 'equal') {
+            leftLineDiv.textContent = String(leftLineNum++);
+            rightLineDiv.textContent = String(rightLineNum++);
+            leftCodeDiv.textContent = diff.oldLine;
+            rightCodeDiv.textContent = diff.newLine;
+            leftCodeDiv.style.opacity = colors.equalOpacity;
+            rightCodeDiv.style.opacity = colors.equalOpacity;
+        } else if (diff.type === 'delete') {
+            leftLineDiv.textContent = String(leftLineNum++);
+            rightLineDiv.textContent = '';
+            leftCodeDiv.textContent = diff.oldLine;
+            leftCodeDiv.style.backgroundColor = colors.deleteBg;
+            leftCodeDiv.style.color = colors.deleteText;
+            rightCodeDiv.style.backgroundColor = colors.emptyBg;
+            rightCodeDiv.style.minHeight = '1.6em';
+        } else if (diff.type === 'insert') {
+            leftLineDiv.textContent = '';
+            rightLineDiv.textContent = String(rightLineNum++);
+            leftCodeDiv.style.backgroundColor = colors.emptyBg;
+            leftCodeDiv.style.minHeight = '1.6em';
+            rightCodeDiv.textContent = diff.newLine;
+            rightCodeDiv.style.backgroundColor = colors.insertBg;
+            rightCodeDiv.style.color = colors.insertText;
+        } else if (diff.type === 'modify') {
+            leftLineDiv.textContent = String(leftLineNum++);
+            rightLineDiv.textContent = String(rightLineNum++);
+            leftCodeDiv.textContent = diff.oldLine;
+            rightCodeDiv.textContent = diff.newLine;
+            leftCodeDiv.style.backgroundColor = colors.deleteBg;
+            leftCodeDiv.style.color = colors.deleteText;
+            rightCodeDiv.style.backgroundColor = colors.insertBg;
+            rightCodeDiv.style.color = colors.insertText;
+        }
+
+        leftPane.lineNumbers.appendChild(leftLineDiv);
+        leftPane.codeArea.appendChild(leftCodeDiv);
+        rightPane.lineNumbers.appendChild(rightLineDiv);
+        rightPane.codeArea.appendChild(rightCodeDiv);
+    });
+
+    body.appendChild(leftPane.pane);
+    body.appendChild(rightPane.pane);
     container.appendChild(header);
     container.appendChild(body);
 

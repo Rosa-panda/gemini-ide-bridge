@@ -4,3 +4,4 @@
 
 export { showPreviewDialog } from './preview.js';
 export { showHistoryDialog, showHistoryDiff } from './history.js';
+export { showEditorDialog } from './editor.js';

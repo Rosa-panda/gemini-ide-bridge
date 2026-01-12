@@ -144,10 +144,12 @@ async function applyPatch(patch, btn, bar, insertToInput) {
             btn.style.background = '#f59e0b';
             
             btn.onclick = async () => {
-                const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
-                if (confirmed) {
+                const previewResult = await showPreviewDialog(file, search, replace, result.matchLine || 1, result.errorDetails);
+                if (previewResult.confirmed) {
                     btn.textContent = '应用中...';
-                    const success = await fs.writeFile(file, result.content);
+                    // 使用用户编辑后的内容
+                    const finalContent = content.replace(search, previewResult.content);
+                    const success = await fs.writeFile(file, finalContent);
                     if (success) {
                         btn.textContent = '✅ 已应用';
                         btn.style.background = '#059669';
@@ -181,8 +183,8 @@ async function applyPatch(patch, btn, bar, insertToInput) {
         return;
     }
 
-    const confirmed = await showPreviewDialog(file, search, replace, result.matchLine || 1);
-    if (!confirmed) {
+    const previewResult = await showPreviewDialog(file, search, replace, result.matchLine || 1);
+    if (!previewResult.confirmed) {
         btn.disabled = false;
         btn.style.opacity = '1';
         return;
@@ -191,7 +193,9 @@ async function applyPatch(patch, btn, bar, insertToInput) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.textContent = '应用中...';
-    const success = await fs.writeFile(file, result.content);
+    // 使用用户编辑后的内容
+    const finalContent = content.replace(search, previewResult.content);
+    const success = await fs.writeFile(file, finalContent);
     if (success) {
         btn.textContent = '✅ 已应用';
         btn.title = `于 ${new Date().toLocaleTimeString()} 应用成功`;

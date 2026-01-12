@@ -11,9 +11,10 @@ import { getLogicSignature, countMatches, isAlreadyApplied, findMatchPosition } 
 import { alignIndent } from './indent.js';
 import { extractLiterals, restoreLiterals } from './literals.js';
 import { detectLineEnding, normalizeLineEnding, restoreLineEnding } from './lineEnding.js';
-export { checkJsSyntax } from './syntax.js';
+import { checkJsSyntax } from './syntax.js';
 
 // 重新导出供外部使用
+export { checkJsSyntax };
 export { detectLineEnding, restoreLineEnding };
 
 /**

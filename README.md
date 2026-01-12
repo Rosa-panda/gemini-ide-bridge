@@ -51,7 +51,29 @@
 
 ## 更新日志
 
-### V0.0.4 (当前)
+### V0.0.5 (当前)
+- **构建系统迁移到 esbuild**
+  - 解决模块同名冲突问题（如 `UndoStack` 重复定义）
+  - 自动处理 import/export，正确隔离作用域
+  - 构建速度极快，支持 Tree-shaking
+- **内嵌编辑器**
+  - 右键文件 → "✏️ 编辑文件" 打开编辑器对话框
+  - Undo/Redo 栈（参考 Firefox devtools undo.js）
+  - Tab/Shift+Tab 缩进/反缩进
+  - 中文输入法兼容（compositionstart/end）
+  - Ctrl+Z/Y 撤销重做，Ctrl+S 保存
+- **预览对话框增强**
+  - 新增 Diff/编辑模式切换
+  - 编辑模式下可直接微调 AI 生成的代码
+  - Undo/Redo 按钮（编辑模式显示）
+- **历史版本对比 Diff 高亮**
+  - 行级差异高亮（删除红色、新增绿色）
+  - 与预览对话框使用相同的 Diff 算法
+- **对话框交互优化**
+  - 点击背景空白处可关闭对话框
+  - 关闭按钮改为右上角 ✕ 图标
+
+### V0.0.4
 - **Side-by-Side Diff 预览**
   - 完全重写 `preview.js`，实现 IDE 级别的并排对比效果
   - **行级 Diff**：基于 Myers 算法，精确识别新增/删除/修改行
@@ -146,7 +168,7 @@
 3. 点击「加载已解压的扩展程序」→ 选择本项目文件夹
 4. 完成！
 
-> 💡 如果你修改了 `src/` 下的源码，也可以运行 `node build.js` 重新构建。没有 Node.js 环境的用户可以直接使用仓库中的 `ide_core.js`。
+> 💡 仓库已包含构建好的 `ide_core.js`，可直接使用。如果修改了 `src/` 下的源码，运行 `npm install && node build.js` 重新构建。
 
 ## 使用
 
@@ -175,7 +197,8 @@
 gemini-ide-bridge/
 ├── manifest.json          # Chrome 扩展配置
 ├── content.js             # 内容脚本入口，注入 ide_core.js
-├── build.js               # 构建脚本，合并模块为单文件
+├── build.js               # 构建脚本（esbuild 打包）
+├── package.json           # npm 依赖配置
 ├── ide_core.js            # 构建产物，运行在页面中的核心逻辑
 │
 └── src/                   # 源码目录（模块化）
@@ -307,8 +330,14 @@ gemini-ide-bridge/
 ## 开发
 
 ```bash
-node build.js  # 合并 src/ 下所有模块为 ide_core.js
+# 首次需要安装依赖
+npm install
+
+# 构建（使用 esbuild 打包）
+node build.js
 ```
+
+> 💡 项目使用 esbuild 打包，自动处理模块依赖和作用域隔离。
 
 ## License
 

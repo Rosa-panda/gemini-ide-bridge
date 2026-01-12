@@ -5,7 +5,7 @@
 import { fs } from '../core/fs.js';
 import { gemini } from '../gemini/index.js';
 import { depsAnalyzer } from '../core/deps.js';
-import { showHistoryDialog } from '../dialog/index.js';
+import { showHistoryDialog, showEditorDialog } from '../dialog/index.js';
 import { showToast, getLanguage, formatTokens } from '../shared/utils.js';
 
 /**
@@ -133,6 +133,11 @@ export function showFileContextMenu(e, node, refreshTree) {
         if (content !== null) {
             gemini.sendFile(node.path, content);
         }
+    }));
+
+    // 编辑文件
+    menu.appendChild(createMenuItem('✏️ 编辑文件', async () => {
+        await showEditorDialog(node.path);
     }));
 
     // 发送文件及依赖

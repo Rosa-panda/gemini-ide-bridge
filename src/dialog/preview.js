@@ -1,8 +1,96 @@
 /**
  * 预览对话框 - 变更确认（Side-by-Side Diff）
+ * 
+ * 编辑模式增强（参考调研文档）：
+ * - Undo/Redo 栈（参考 Firefox devtools undo.js）
+ * - Tab/Shift+Tab 缩进/反缩进
+ * - 中文输入法兼容（compositionstart/end）
+ * - 光标位置保存/恢复（zserge 方案）
  */
 
 import { detectTheme } from '../shared/theme.js';
+
+/**
+ * 简单的 Undo/Redo 栈（参考 Firefox devtools undo.js）
+ */
+class UndoStack {
+    constructor(maxSize = 50) {
+        this._stack = [];
+        this._index = -1;
+        this._maxSize = maxSize;
+    }
+    
+    push(state) {
+        // 截断后面的历史
+        this._stack = this._stack.slice(0, this._index + 1);
+        this._stack.push(state);
+        // 限制栈大小
+        if (this._stack.length > this._maxSize) {
+            this._stack.shift();
+        } else {
+            this._index++;
+        }
+    }
+    
+    undo() {
+        if (!this.canUndo()) return null;
+        this._index--;
+        return this._stack[this._index];
+    }
+    
+    redo() {
+        if (!this.canRedo()) return null;
+        this._index++;
+        return this._stack[this._index];
+    }
+    
+    canUndo() { return this._index > 0; }
+    canRedo() { return this._index < this._stack.length - 1; }
+    current() { return this._stack[this._index] || null; }
+}
+
+/**
+ * 获取光标位置（参考 zserge 方案）
+ */
+function getCaretPosition(el) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    const prefix = range.cloneRange();
+    prefix.selectNodeContents(el);
+    prefix.setEnd(range.endContainer, range.endOffset);
+    return prefix.toString().length;
+}
+
+/**
+ * 设置光标位置
+ */
+function setCaretPosition(el, pos) {
+    const sel = window.getSelection();
+    let charCount = 0;
+    
+    function traverse(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const nextCount = charCount + node.length;
+            if (pos <= nextCount) {
+                const range = document.createRange();
+                range.setStart(node, pos - charCount);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return true;
+            }
+            charCount = nextCount;
+        } else {
+            for (const child of node.childNodes) {
+                if (traverse(child)) return true;
+            }
+        }
+        return false;
+    }
+    
+    traverse(el);
+}
 
 /**
  * 获取主题相关的 Diff 配色方案
@@ -210,9 +298,20 @@ function renderHighlightedLine(charDiffs, type, colors) {
  * @param {string} newText - REPLACE 块内容
  * @param {number} startLine - 匹配位置的起始行号
  * @param {string} syntaxError - 可选的语法错误信息
+ * @returns {Promise<{confirmed: boolean, content?: string}>} 确认状态和编辑后的内容
  */
 export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxError = null) {
     return new Promise((resolve) => {
+        // 用于追踪用户编辑后的内容
+        let editedContent = newText;
+        
+        // Undo/Redo 栈（编辑模式用）
+        const undoStack = new UndoStack();
+        undoStack.push({ content: newText, cursor: 0 });
+        
+        // 更新 Undo/Redo 按钮状态的函数（稍后绑定）
+        let updateUndoButtons = () => {};
+        
         const backdrop = document.createElement('div');
         backdrop.id = 'ide-modal-backdrop';
         Object.assign(backdrop.style, {
@@ -259,8 +358,62 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
         
         titleGroup.appendChild(titleIcon);
         titleGroup.appendChild(titleText);
+        
+        // 模式切换按钮组
+        const modeGroup = document.createElement('div');
+        Object.assign(modeGroup.style, { display: 'flex', gap: '8px', alignItems: 'center' });
+        
+        const diffModeBtn = document.createElement('button');
+        diffModeBtn.textContent = '📊 Diff';
+        const editModeBtn = document.createElement('button');
+        editModeBtn.textContent = '✏️ 编辑';
+        
+        [diffModeBtn, editModeBtn].forEach(btn => {
+            Object.assign(btn.style, {
+                padding: '4px 10px', borderRadius: '4px', cursor: 'pointer',
+                border: '1px solid var(--ide-border)', fontSize: '12px'
+            });
+        });
+        // 默认 diff 模式激活
+        diffModeBtn.style.background = 'var(--ide-accent)';
+        diffModeBtn.style.color = '#fff';
+        editModeBtn.style.background = 'transparent';
+        editModeBtn.style.color = 'var(--ide-text)';
+        
+        // Undo/Redo 按钮（编辑模式可用）
+        const undoBtn = document.createElement('button');
+        undoBtn.textContent = '↩️';
+        undoBtn.title = 'Ctrl+Z 撤销';
+        const redoBtn = document.createElement('button');
+        redoBtn.textContent = '↪️';
+        redoBtn.title = 'Ctrl+Y 重做';
+        
+        [undoBtn, redoBtn].forEach(btn => {
+            Object.assign(btn.style, {
+                padding: '4px 8px', borderRadius: '4px', cursor: 'pointer',
+                border: '1px solid var(--ide-border)', fontSize: '12px',
+                background: 'transparent', color: 'var(--ide-text)',
+                opacity: '0.4', display: 'none'  // 默认隐藏，编辑模式显示
+            });
+        });
+        
+        // 更新 Undo/Redo 按钮状态
+        updateUndoButtons = () => {
+            undoBtn.style.opacity = undoStack.canUndo() ? '1' : '0.4';
+            redoBtn.style.opacity = undoStack.canRedo() ? '1' : '0.4';
+        };
+        
+        modeGroup.appendChild(diffModeBtn);
+        modeGroup.appendChild(editModeBtn);
+        modeGroup.appendChild(undoBtn);
+        modeGroup.appendChild(redoBtn);
+        
         header.appendChild(titleGroup);
+        header.appendChild(modeGroup);
         dialog.appendChild(header);
+        
+        // 当前模式
+        let currentMode = 'diff';
 
         // 语法警告横幅
         if (syntaxError) {
@@ -308,7 +461,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
         const colors = getDiffColors();
 
         // 创建左右两个面板
-        const createSidePanel = (side) => {
+        const createSidePanel = (side, mode) => {
             const panel = document.createElement('div');
             Object.assign(panel.style, {
                 flex: '1', display: 'flex', flexDirection: 'column',
@@ -316,9 +469,17 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                 borderRight: side === 'left' ? '1px solid var(--ide-border)' : 'none'
             });
 
-            // 面板头部
+            // 面板头部 - 根据模式显示不同文字
             const panelHeader = document.createElement('div');
-            panelHeader.textContent = side === 'left' ? '🔴 原始代码 (SEARCH)' : '🟢 修改后代码 (REPLACE)';
+            if (mode === 'diff') {
+                panelHeader.textContent = side === 'left' 
+                    ? '� 原始(代码 (SEARCH)' 
+                    : '🟢 修改后代码 (REPLACE)';
+            } else {
+                panelHeader.textContent = side === 'left' 
+                    ? '🔴 原始代码 (只读)' 
+                    : '🟢 修改后代码 (可编辑) ✏️';
+            }
             Object.assign(panelHeader.style, {
                 padding: '10px 16px', fontSize: '12px', fontWeight: 'bold',
                 background: side === 'left' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
@@ -353,6 +514,100 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                 overflow: 'visible', color: 'var(--ide-text)',
                 whiteSpace: 'pre'
             });
+            
+            // 编辑模式下右侧面板可编辑（增强版）
+            if (mode === 'edit' && side === 'right') {
+                codeArea.contentEditable = 'plaintext-only';
+                codeArea.style.outline = 'none';
+                codeArea.style.cursor = 'text';
+                codeArea.style.minHeight = '100%';
+                
+                // 中文输入法状态
+                let isComposing = false;
+                
+                // 保存状态到 undo 栈（防抖）
+                let saveTimeout = null;
+                const saveState = () => {
+                    if (saveTimeout) clearTimeout(saveTimeout);
+                    saveTimeout = setTimeout(() => {
+                        const cursor = getCaretPosition(codeArea);
+                        undoStack.push({ content: codeArea.textContent, cursor });
+                        updateUndoButtons();
+                    }, 300);
+                };
+                
+                // 中文输入法兼容
+                codeArea.addEventListener('compositionstart', () => { isComposing = true; });
+                codeArea.addEventListener('compositionend', () => { 
+                    isComposing = false; 
+                    saveState();
+                    editedContent = codeArea.textContent;
+                    updateLineNumbers(lineNumbers, editedContent, startLine);
+                });
+                
+                // 监听编辑
+                codeArea.addEventListener('input', () => {
+                    if (!isComposing) {
+                        saveState();
+                        editedContent = codeArea.textContent;
+                        updateLineNumbers(lineNumbers, editedContent, startLine);
+                    }
+                });
+                
+                // 键盘事件：Tab/Shift+Tab/Ctrl+Z/Ctrl+Y
+                codeArea.addEventListener('keydown', (e) => {
+                    // Tab 键插入空格
+                    if (e.key === 'Tab' && !e.shiftKey) {
+                        e.preventDefault();
+                        document.execCommand('insertText', false, '    ');
+                    }
+                    // Shift+Tab 反缩进（删除行首 4 空格）
+                    if (e.key === 'Tab' && e.shiftKey) {
+                        e.preventDefault();
+                        // 简单实现：删除光标前的空格
+                        const sel = window.getSelection();
+                        if (sel.rangeCount) {
+                            const range = sel.getRangeAt(0);
+                            const text = codeArea.textContent;
+                            const pos = getCaretPosition(codeArea);
+                            // 找到当前行开头
+                            let lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+                            // 检查行首是否有空格
+                            if (text.substring(lineStart, lineStart + 4) === '    ') {
+                                codeArea.textContent = text.substring(0, lineStart) + text.substring(lineStart + 4);
+                                setCaretPosition(codeArea, Math.max(lineStart, pos - 4));
+                                editedContent = codeArea.textContent;
+                                updateLineNumbers(lineNumbers, editedContent, startLine);
+                                saveState();
+                            }
+                        }
+                    }
+                    // Ctrl+Z 撤销
+                    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+                        e.preventDefault();
+                        const state = undoStack.undo();
+                        if (state) {
+                            codeArea.textContent = state.content;
+                            setCaretPosition(codeArea, state.cursor);
+                            editedContent = state.content;
+                            updateLineNumbers(lineNumbers, editedContent, startLine);
+                            updateUndoButtons();
+                        }
+                    }
+                    // Ctrl+Y 或 Ctrl+Shift+Z 重做
+                    if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+                        e.preventDefault();
+                        const state = undoStack.redo();
+                        if (state) {
+                            codeArea.textContent = state.content;
+                            setCaretPosition(codeArea, state.cursor);
+                            editedContent = state.content;
+                            updateLineNumbers(lineNumbers, editedContent, startLine);
+                            updateUndoButtons();
+                        }
+                    }
+                });
+            }
 
             panel.appendChild(panelHeader);
             codeContainer.appendChild(lineNumbers);
@@ -361,69 +616,151 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
 
             return { panel, lineNumbers, codeArea };
         };
-
-        const leftPanel = createSidePanel('left');
-        const rightPanel = createSidePanel('right');
-
-        // 渲染差异
-        let leftLineNum = startLine;
-        let rightLineNum = startLine;
-
-        lineDiffs.forEach(diff => {
-            const leftLineDiv = document.createElement('div');
-            const rightLineDiv = document.createElement('div');
-            const leftCodeDiv = document.createElement('div');
-            const rightCodeDiv = document.createElement('div');
-
-            if (diff.type === 'equal') {
-                // 相同行 - 正常显示
-                leftLineDiv.textContent = String(leftLineNum++);
-                rightLineDiv.textContent = String(rightLineNum++);
-                leftCodeDiv.textContent = diff.oldLine;
-                rightCodeDiv.textContent = diff.newLine;
-                leftCodeDiv.style.color = 'var(--ide-text)';
-                rightCodeDiv.style.color = 'var(--ide-text)';
-                leftCodeDiv.style.opacity = colors.equalOpacity;
-                rightCodeDiv.style.opacity = colors.equalOpacity;
-            } else if (diff.type === 'delete') {
-                // 删除行 - 左侧红色背景，右侧空白
-                leftLineDiv.textContent = String(leftLineNum++);
-                rightLineDiv.textContent = '';
-                leftCodeDiv.textContent = diff.oldLine;
-                leftCodeDiv.style.backgroundColor = colors.deleteBg;
-                leftCodeDiv.style.color = colors.deleteText;
-                rightCodeDiv.textContent = '';
-                rightCodeDiv.style.backgroundColor = colors.emptyBg;
-            } else if (diff.type === 'insert') {
-                // 插入行 - 右侧绿色背景，左侧空白
-                leftLineDiv.textContent = '';
-                rightLineDiv.textContent = String(rightLineNum++);
-                leftCodeDiv.textContent = '';
-                leftCodeDiv.style.backgroundColor = colors.emptyBg;
-                rightCodeDiv.textContent = diff.newLine;
-                rightCodeDiv.style.backgroundColor = colors.insertBg;
-                rightCodeDiv.style.color = colors.insertText;
-            } else if (diff.type === 'modify') {
-                // 修改行 - 两侧都显示，字符级高亮
-                leftLineDiv.textContent = String(leftLineNum++);
-                rightLineDiv.textContent = String(rightLineNum++);
-                
-                const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
-                leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
-                rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors));
-                
-                leftCodeDiv.style.backgroundColor = colors.deleteBg;
-                rightCodeDiv.style.backgroundColor = colors.insertBg;
+        
+        // 更新行号的辅助函数
+        const updateLineNumbers = (lineNumbersEl, content, baseLineNum) => {
+            const lines = content.split('\n');
+            // 清空行号（不使用 innerHTML，避免 Trusted Types 问题）
+            while (lineNumbersEl.firstChild) {
+                lineNumbersEl.removeChild(lineNumbersEl.firstChild);
             }
+            lines.forEach((_, idx) => {
+                const lineDiv = document.createElement('div');
+                lineDiv.textContent = String(baseLineNum + idx);
+                lineNumbersEl.appendChild(lineDiv);
+            });
+        };
 
-            leftPanel.lineNumbers.appendChild(leftLineDiv);
-            leftPanel.codeArea.appendChild(leftCodeDiv);
-            rightPanel.lineNumbers.appendChild(rightLineDiv);
-            rightPanel.codeArea.appendChild(rightCodeDiv);
-        });
+        // 渲染内容的函数
+        const renderContent = (mode) => {
+            // 清空 diffBody
+            while (diffBody.firstChild) {
+                diffBody.removeChild(diffBody.firstChild);
+            }
+            
+            const leftPanel = createSidePanel('left', mode);
+            const rightPanel = createSidePanel('right', mode);
+            
+            if (mode === 'diff') {
+                // Diff 模式：左右都渲染 diff 高亮
+                let leftLineNum = startLine;
+                let rightLineNum = startLine;
 
-        diffBody.appendChild(leftPanel.panel);
-        diffBody.appendChild(rightPanel.panel);
+                lineDiffs.forEach(diff => {
+                    const leftLineDiv = document.createElement('div');
+                    const rightLineDiv = document.createElement('div');
+                    const leftCodeDiv = document.createElement('div');
+                    const rightCodeDiv = document.createElement('div');
+
+                    if (diff.type === 'equal') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        rightLineDiv.textContent = String(rightLineNum++);
+                        leftCodeDiv.textContent = diff.oldLine;
+                        rightCodeDiv.textContent = diff.newLine;
+                        leftCodeDiv.style.opacity = colors.equalOpacity;
+                        rightCodeDiv.style.opacity = colors.equalOpacity;
+                    } else if (diff.type === 'delete') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        rightLineDiv.textContent = '';
+                        leftCodeDiv.textContent = diff.oldLine;
+                        leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                        leftCodeDiv.style.color = colors.deleteText;
+                        rightCodeDiv.style.backgroundColor = colors.emptyBg;
+                        rightCodeDiv.style.minHeight = '1.6em';
+                    } else if (diff.type === 'insert') {
+                        leftLineDiv.textContent = '';
+                        rightLineDiv.textContent = String(rightLineNum++);
+                        leftCodeDiv.style.backgroundColor = colors.emptyBg;
+                        leftCodeDiv.style.minHeight = '1.6em';
+                        rightCodeDiv.textContent = diff.newLine;
+                        rightCodeDiv.style.backgroundColor = colors.insertBg;
+                        rightCodeDiv.style.color = colors.insertText;
+                    } else if (diff.type === 'modify') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        rightLineDiv.textContent = String(rightLineNum++);
+                        const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
+                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
+                        rightCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'new', colors));
+                        leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                        rightCodeDiv.style.backgroundColor = colors.insertBg;
+                    }
+
+                    leftPanel.lineNumbers.appendChild(leftLineDiv);
+                    leftPanel.codeArea.appendChild(leftCodeDiv);
+                    rightPanel.lineNumbers.appendChild(rightLineDiv);
+                    rightPanel.codeArea.appendChild(rightCodeDiv);
+                });
+            } else {
+                // 编辑模式：左侧保持 diff 高亮，右侧可编辑
+                let leftLineNum = startLine;
+
+                lineDiffs.forEach(diff => {
+                    const leftLineDiv = document.createElement('div');
+                    const leftCodeDiv = document.createElement('div');
+
+                    if (diff.type === 'equal') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        leftCodeDiv.textContent = diff.oldLine;
+                        leftCodeDiv.style.opacity = colors.equalOpacity;
+                    } else if (diff.type === 'delete') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        leftCodeDiv.textContent = diff.oldLine;
+                        leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                        leftCodeDiv.style.color = colors.deleteText;
+                    } else if (diff.type === 'insert') {
+                        leftLineDiv.textContent = '';
+                        leftCodeDiv.style.backgroundColor = colors.emptyBg;
+                        leftCodeDiv.style.minHeight = '1.6em';
+                    } else if (diff.type === 'modify') {
+                        leftLineDiv.textContent = String(leftLineNum++);
+                        const charDiffs = computeCharDiff(diff.oldLine, diff.newLine);
+                        leftCodeDiv.appendChild(renderHighlightedLine(charDiffs, 'old', colors));
+                        leftCodeDiv.style.backgroundColor = colors.deleteBg;
+                    }
+
+                    leftPanel.lineNumbers.appendChild(leftLineDiv);
+                    leftPanel.codeArea.appendChild(leftCodeDiv);
+                });
+                
+                // 右侧可编辑
+                rightPanel.codeArea.textContent = editedContent;
+                updateLineNumbers(rightPanel.lineNumbers, editedContent, startLine);
+            }
+            
+            diffBody.appendChild(leftPanel.panel);
+            diffBody.appendChild(rightPanel.panel);
+        };
+        
+        // 模式切换逻辑
+        const switchMode = (mode) => {
+            currentMode = mode;
+            // 更新按钮样式
+            if (mode === 'diff') {
+                diffModeBtn.style.background = 'var(--ide-accent)';
+                diffModeBtn.style.color = '#fff';
+                editModeBtn.style.background = 'transparent';
+                editModeBtn.style.color = 'var(--ide-text)';
+                // 隐藏 Undo/Redo 按钮
+                undoBtn.style.display = 'none';
+                redoBtn.style.display = 'none';
+            } else {
+                diffModeBtn.style.background = 'transparent';
+                diffModeBtn.style.color = 'var(--ide-text)';
+                editModeBtn.style.background = 'var(--ide-accent)';
+                editModeBtn.style.color = '#fff';
+                // 显示 Undo/Redo 按钮
+                undoBtn.style.display = 'block';
+                redoBtn.style.display = 'block';
+                updateUndoButtons();
+            }
+            renderContent(mode);
+        };
+        
+        diffModeBtn.onclick = () => switchMode('diff');
+        editModeBtn.onclick = () => switchMode('edit');
+        
+        // 初始渲染 diff 模式
+        renderContent('diff');
 
         // 底部按钮
         const footer = document.createElement('div');
@@ -444,7 +781,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
         });
         cancelBtn.onmouseover = () => cancelBtn.style.background = 'var(--ide-hover)';
         cancelBtn.onmouseout = () => cancelBtn.style.background = 'transparent';
-        cancelBtn.onclick = () => { closeAll(); resolve(false); };
+        cancelBtn.onclick = () => { closeAll(); resolve({ confirmed: false }); };
 
         const confirmBtn = document.createElement('button');
         confirmBtn.textContent = '确认应用修改';
@@ -454,7 +791,10 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             border: 'none', fontSize: '14px', fontWeight: '600',
             boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
         });
-        confirmBtn.onclick = () => { closeAll(); resolve(true); };
+        confirmBtn.onclick = () => { 
+            closeAll(); 
+            resolve({ confirmed: true, content: editedContent }); 
+        };
 
         footer.appendChild(cancelBtn);
         footer.appendChild(confirmBtn);
