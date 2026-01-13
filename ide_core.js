@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T02:31:45.670Z
+ * 自动构建于 2026-01-13T03:19:36.640Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -4069,8 +4069,8 @@ ${editedContent}
           if (lineCommentIdx !== -1 && (startIdx === -1 || lineCommentIdx < startIdx)) {
             if (lineCommentIdx > 0) {
               const codePart = remaining.slice(0, lineCommentIdx);
-              const tokens2 = tokenizeLine(codePart, lang);
-              tokens2.forEach((t) => renderToken(t, container));
+              const tokens = tokenizeLine(codePart, lang);
+              tokens.forEach((t) => renderToken(t, container));
             }
             const span = document.createElement("span");
             span.className = "ide-hl-comment";
@@ -4082,48 +4082,29 @@ ${editedContent}
           if (startIdx !== -1) {
             if (startIdx > 0) {
               const codePart = remaining.slice(0, startIdx);
-              const tokens2 = tokenizeLine(codePart, lang);
-              tokens2.forEach((t) => renderToken(t, container));
+              const tokens = tokenizeLine(codePart, lang);
+              tokens.forEach((t) => renderToken(t, container));
             }
             remaining = remaining.slice(startIdx);
             inBlockComment = true;
           } else {
-            const tokens2 = tokenizeLine(remaining, lang);
-            tokens2.forEach((t) => renderToken(t, container));
+            const tokens = tokenizeLine(remaining, lang);
+            tokens.forEach((t) => renderToken(t, container));
             remaining = "";
           }
         }
       }
-      return;
-      function renderToken(token, container2) {
-        if (token.type) {
-          const span = document.createElement("span");
-          span.className = `ide-hl-${token.type}`;
-          span.textContent = token.text;
-          container2.appendChild(span);
-        } else {
-          container2.appendChild(document.createTextNode(token.text));
-        }
-      }
-      if (commentPrefix && trimmed.startsWith(commentPrefix)) {
-        const span = document.createElement("span");
-        span.className = "ide-hl-comment";
-        span.textContent = line;
-        container.appendChild(span);
-        return;
-      }
-      const tokens = tokenizeLine(line, lang);
-      tokens.forEach((token) => {
-        if (token.type) {
-          const span = document.createElement("span");
-          span.className = `ide-hl-${token.type}`;
-          span.textContent = token.text;
-          container.appendChild(span);
-        } else {
-          container.appendChild(document.createTextNode(token.text));
-        }
-      });
     });
+    function renderToken(token, container2) {
+      if (token.type) {
+        const span = document.createElement("span");
+        span.className = `ide-hl-${token.type}`;
+        span.textContent = token.text;
+        container2.appendChild(span);
+      } else {
+        container2.appendChild(document.createTextNode(token.text));
+      }
+    }
   }
   function getHighlightStyles() {
     return `

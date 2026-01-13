@@ -288,42 +288,19 @@ export function highlightToDOM(code, language, container) {
                 }
             }
         }
-        return;
-        
-        /* 辅助渲染函数 */
-        function renderToken(token, container) {
-            if (token.type) {
-                const span = document.createElement('span');
-                span.className = `ide-hl-${token.type}`;
-                span.textContent = token.text;
-                container.appendChild(span);
-            } else {
-                container.appendChild(document.createTextNode(token.text));
-            }
-        }
-        
-        // 检查单行注释（整行）
-        if (commentPrefix && trimmed.startsWith(commentPrefix)) {
-            const span = document.createElement('span');
-            span.className = 'ide-hl-comment';
-            span.textContent = line;
-            container.appendChild(span);
-            return;
-        }
-        
-        // 逐词高亮
-        const tokens = tokenizeLine(line, lang);
-        tokens.forEach(token => {
-            if (token.type) {
-                const span = document.createElement('span');
-                span.className = `ide-hl-${token.type}`;
-                span.textContent = token.text;
-                container.appendChild(span);
-            } else {
-                container.appendChild(document.createTextNode(token.text));
-            }
-        });
     });
+
+    /* 辅助渲染函数 */
+    function renderToken(token, container) {
+        if (token.type) {
+            const span = document.createElement('span');
+            span.className = `ide-hl-${token.type}`;
+            span.textContent = token.text;
+            container.appendChild(span);
+        } else {
+            container.appendChild(document.createTextNode(token.text));
+        }
+    }
 }
 
 
