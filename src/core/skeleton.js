@@ -1,71 +1,136 @@
 /**
- * 语义骨架模块 - 生成代码的精简结构图（基于 AST 思想）
- * 参考：LLVM AST 的结构化生成思路
+ * 语义骨架模块 - 生成代码的精简结构图
+ * 只保留顶层结构：导入、导出、函数签名、类定义
  */
-
-import { getLogicSignature } from './patcher/matcher.js';
 
 export function generateSkeleton(code, filePath) {
     const ext = filePath.split('.').pop().toLowerCase();
     const lines = code.split('\n');
-    const sigs = getLogicSignature(code);
     
     let skeleton = `// ========== FILE: ${filePath} ==========\n`;
     
     // 针对不同语言的提取逻辑
     if (ext === 'py') {
-        return skeleton + generatePythonSkeleton(lines, sigs);
+        return skeleton + generatePythonSkeleton(lines);
     }
-    return skeleton + generateJsSkeleton(lines, sigs);
+    return skeleton + generateJsSkeleton(lines);
 }
 
 /**
  * 生成 JavaScript/TypeScript 的结构化骨架
- * 保留：导入、导出、类定义、函数签名、类型定义
+ * 只保留顶层声明,不进入函数体
  */
-function generateJsSkeleton(lines, sigs) {
+function generateJsSkeleton(lines) {
     const result = [];
-    let currentClass = null;
-    let currentIndent = 0;
+    let inBlockComment = false;
+    let braceDepth = 0;  // 追踪大括号深度
+    let inFunctionBody = false;
     
-    sigs.forEach((sig, index) => {
-        const c = sig.content.trim();
-        const line = lines[sig.originalIndex];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
         
-        // 1. 类定义 (优先处理，支持 export default, abstract 等)
-        if (c.includes('class ') && (c.includes('export ') || c.startsWith('class ') || c.startsWith('abstract '))) {
-            if (currentClass) {
-                result.push(' '.repeat(currentIndent) + '}');
-                result.push('');
+        // 跳过空行
+        if (!trimmed) continue;
+        
+        // 处理块注释
+        if (trimmed.startsWith('/*')) inBlockComment = true;
+        if (inBlockComment) {
+            if (trimmed.includes('*/')) inBlockComment = false;
+            continue;
+        }
+        
+        // 跳过单行注释
+        if (trimmed.startsWith('//')) continue;
+        
+        // 如果在函数体内,只追踪大括号,不输出内容
+        if (inFunctionBody) {
+            // 统计这行的大括号
+            for (const char of line) {
+                if (char === '{') braceDepth++;
+                if (char === '}') braceDepth--;
             }
-            currentClass = c.match(/class\s+(\w+)/)?.[1] || 'Default';
-            currentIndent = sig.indent;
-            result.push(line.split('{')[0].trim() + ' { /* ... */ }');
-            return;
+            // 如果回到顶层,退出函数体
+            if (braceDepth === 0) {
+                inFunctionBody = false;
+            }
+            continue;
         }
         
-        // 2. 函数定义（只保留签名，不保留函数体）
-        if (c.startsWith('function ') || c.startsWith('async function ') || 
-            c.startsWith('export function ') || c.startsWith('export async function ') ||
-            c.match(/^\w+\s*\([^)]*\)\s*{/) || 
-            c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
-            
-            let signature = line.split('{')[0].split('=>')[0].trim();
+        // 导入/导出语句
+        if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {
+            // 如果是 export function/class,继续处理
+            if (trimmed.includes('function ') || trimmed.includes('class ')) {
+                const signature = line.split('{')[0].trim();
+                result.push(signature + ' { /* ... */ }');
+                // 如果这行有 {,进入函数体模式
+                if (line.includes('{')) {
+                    inFunctionBody = true;
+                    braceDepth = 1;
+                    // 统计这行剩余的大括号
+                    const afterBrace = line.substring(line.indexOf('{') + 1);
+                    for (const char of afterBrace) {
+                        if (char === '{') braceDepth++;
+                        if (char === '}') braceDepth--;
+                    }
+                    if (braceDepth === 0) inFunctionBody = false;
+                }
+            } else {
+                // 普通的 import/export
+                result.push(line);
+            }
+            continue;
+        }
+        
+        // 顶层函数定义
+        if (trimmed.startsWith('function ') || trimmed.startsWith('async function ')) {
+            const signature = line.split('{')[0].trim();
             result.push(signature + ' { /* ... */ }');
-            return;
+            if (line.includes('{')) {
+                inFunctionBody = true;
+                braceDepth = 1;
+                const afterBrace = line.substring(line.indexOf('{') + 1);
+                for (const char of afterBrace) {
+                    if (char === '{') braceDepth++;
+                    if (char === '}') braceDepth--;
+                }
+                if (braceDepth === 0) inFunctionBody = false;
+            }
+            continue;
         }
-
-        // 3. 导入/导出/类型定义
-        if (c.startsWith('import ') || c.startsWith('export ') || 
-            c.startsWith('interface ') || c.startsWith('type ')) {
+        
+        // 类定义
+        if (trimmed.startsWith('class ')) {
+            const signature = line.split('{')[0].trim();
+            result.push(signature + ' { /* ... */ }');
+            if (line.includes('{')) {
+                inFunctionBody = true;
+                braceDepth = 1;
+                const afterBrace = line.substring(line.indexOf('{') + 1);
+                for (const char of afterBrace) {
+                    if (char === '{') braceDepth++;
+                    if (char === '}') braceDepth--;
+                }
+                if (braceDepth === 0) inFunctionBody = false;
+            }
+            continue;
+        }
+        
+        // 类型定义
+        if (trimmed.startsWith('interface ') || trimmed.startsWith('type ')) {
             result.push(line);
-            return;
+            if (line.includes('{')) {
+                inFunctionBody = true;
+                braceDepth = 1;
+                const afterBrace = line.substring(line.indexOf('{') + 1);
+                for (const char of afterBrace) {
+                    if (char === '{') braceDepth++;
+                    if (char === '}') braceDepth--;
+                }
+                if (braceDepth === 0) inFunctionBody = false;
+            }
+            continue;
         }
-    });
-    
-    // 关闭最后一个类
-    if (currentClass) {
-        result.push(' '.repeat(currentIndent) + '}');
     }
     
     return result.join('\n');
@@ -73,43 +138,65 @@ function generateJsSkeleton(lines, sigs) {
 
 /**
  * 生成 Python 的结构化骨架
- * 保留：导入、类定义、函数签名、装饰器
+ * 只保留顶层声明
  */
-function generatePythonSkeleton(lines, sigs) {
+function generatePythonSkeleton(lines) {
     const result = [];
+    let inFunctionOrClass = false;
+    let currentIndent = 0;
     
-    sigs.forEach((sig, index) => {
-        const c = sig.content.trim();
-        const line = lines[sig.originalIndex];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        // 跳过空行和注释
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        
+        // 计算缩进
+        const indent = line.length - line.trimStart().length;
+        
+        // 如果在函数/类内部,且缩进更深,跳过
+        if (inFunctionOrClass && indent > currentIndent) {
+            continue;
+        }
+        
+        // 回到顶层
+        if (inFunctionOrClass && indent <= currentIndent) {
+            inFunctionOrClass = false;
+        }
         
         // 导入语句
-        if (c.startsWith('import ') || c.startsWith('from ')) {
+        if (trimmed.startsWith('import ') || trimmed.startsWith('from ')) {
             result.push(line);
-            return;
+            continue;
         }
         
         // 装饰器
-        if (c.startsWith('@')) {
+        if (trimmed.startsWith('@')) {
             result.push(line);
-            return;
+            continue;
         }
         
         // 类定义
-        if (c.startsWith('class ')) {
+        if (trimmed.startsWith('class ')) {
             result.push(line);
-            result.push(' '.repeat(sig.indent + 4) + 'pass');
+            result.push(' '.repeat(indent + 4) + 'pass');
             result.push('');
-            return;
+            inFunctionOrClass = true;
+            currentIndent = indent;
+            continue;
         }
         
         // 函数定义
-        if (c.startsWith('def ') || c.startsWith('async def ')) {
+        if (trimmed.startsWith('def ') || trimmed.startsWith('async def ')) {
             result.push(line);
-            result.push(' '.repeat(sig.indent + 4) + 'pass');
+            result.push(' '.repeat(indent + 4) + 'pass');
             result.push('');
-            return;
+            inFunctionOrClass = true;
+            currentIndent = indent;
+            continue;
         }
-    });
+    }
     
     return result.join('\n');
 }

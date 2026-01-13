@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T01:01:07.715Z
+ * 自动构建于 2026-01-13T01:03:03.129Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6588,73 +6588,144 @@ if __name__ == "__main__":
   function generateSkeleton(code, filePath) {
     const ext = filePath.split(".").pop().toLowerCase();
     const lines = code.split("\n");
-    const sigs = getLogicSignature(code);
     let skeleton = `// ========== FILE: ${filePath} ==========
 `;
     if (ext === "py") {
-      return skeleton + generatePythonSkeleton(lines, sigs);
+      return skeleton + generatePythonSkeleton(lines);
     }
-    return skeleton + generateJsSkeleton(lines, sigs);
+    return skeleton + generateJsSkeleton(lines);
   }
-  function generateJsSkeleton(lines, sigs) {
+  function generateJsSkeleton(lines) {
     const result = [];
-    let currentClass = null;
-    let currentIndent = 0;
-    sigs.forEach((sig, index) => {
-      var _a;
-      const c = sig.content.trim();
-      const line = lines[sig.originalIndex];
-      if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
-        if (currentClass) {
-          result.push(" ".repeat(currentIndent) + "}");
-          result.push("");
+    let inBlockComment = false;
+    let braceDepth = 0;
+    let inFunctionBody = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith("/*")) inBlockComment = true;
+      if (inBlockComment) {
+        if (trimmed.includes("*/")) inBlockComment = false;
+        continue;
+      }
+      if (trimmed.startsWith("//")) continue;
+      if (inFunctionBody) {
+        for (const char of line) {
+          if (char === "{") braceDepth++;
+          if (char === "}") braceDepth--;
         }
-        currentClass = ((_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1]) || "Default";
-        currentIndent = sig.indent;
-        result.push(line.split("{")[0].trim() + " { /* ... */ }");
-        return;
+        if (braceDepth === 0) {
+          inFunctionBody = false;
+        }
+        continue;
       }
-      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
-        let signature = line.split("{")[0].split("=>")[0].trim();
+      if (trimmed.startsWith("import ") || trimmed.startsWith("export ")) {
+        if (trimmed.includes("function ") || trimmed.includes("class ")) {
+          const signature = line.split("{")[0].trim();
+          result.push(signature + " { /* ... */ }");
+          if (line.includes("{")) {
+            inFunctionBody = true;
+            braceDepth = 1;
+            const afterBrace = line.substring(line.indexOf("{") + 1);
+            for (const char of afterBrace) {
+              if (char === "{") braceDepth++;
+              if (char === "}") braceDepth--;
+            }
+            if (braceDepth === 0) inFunctionBody = false;
+          }
+        } else {
+          result.push(line);
+        }
+        continue;
+      }
+      if (trimmed.startsWith("function ") || trimmed.startsWith("async function ")) {
+        const signature = line.split("{")[0].trim();
         result.push(signature + " { /* ... */ }");
-        return;
+        if (line.includes("{")) {
+          inFunctionBody = true;
+          braceDepth = 1;
+          const afterBrace = line.substring(line.indexOf("{") + 1);
+          for (const char of afterBrace) {
+            if (char === "{") braceDepth++;
+            if (char === "}") braceDepth--;
+          }
+          if (braceDepth === 0) inFunctionBody = false;
+        }
+        continue;
       }
-      if (c.startsWith("import ") || c.startsWith("export ") || c.startsWith("interface ") || c.startsWith("type ")) {
+      if (trimmed.startsWith("class ")) {
+        const signature = line.split("{")[0].trim();
+        result.push(signature + " { /* ... */ }");
+        if (line.includes("{")) {
+          inFunctionBody = true;
+          braceDepth = 1;
+          const afterBrace = line.substring(line.indexOf("{") + 1);
+          for (const char of afterBrace) {
+            if (char === "{") braceDepth++;
+            if (char === "}") braceDepth--;
+          }
+          if (braceDepth === 0) inFunctionBody = false;
+        }
+        continue;
+      }
+      if (trimmed.startsWith("interface ") || trimmed.startsWith("type ")) {
         result.push(line);
-        return;
+        if (line.includes("{")) {
+          inFunctionBody = true;
+          braceDepth = 1;
+          const afterBrace = line.substring(line.indexOf("{") + 1);
+          for (const char of afterBrace) {
+            if (char === "{") braceDepth++;
+            if (char === "}") braceDepth--;
+          }
+          if (braceDepth === 0) inFunctionBody = false;
+        }
+        continue;
       }
-    });
-    if (currentClass) {
-      result.push(" ".repeat(currentIndent) + "}");
     }
     return result.join("\n");
   }
-  function generatePythonSkeleton(lines, sigs) {
+  function generatePythonSkeleton(lines) {
     const result = [];
-    sigs.forEach((sig, index) => {
-      const c = sig.content.trim();
-      const line = lines[sig.originalIndex];
-      if (c.startsWith("import ") || c.startsWith("from ")) {
-        result.push(line);
-        return;
+    let inFunctionOrClass = false;
+    let currentIndent = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const indent = line.length - line.trimStart().length;
+      if (inFunctionOrClass && indent > currentIndent) {
+        continue;
       }
-      if (c.startsWith("@")) {
-        result.push(line);
-        return;
+      if (inFunctionOrClass && indent <= currentIndent) {
+        inFunctionOrClass = false;
       }
-      if (c.startsWith("class ")) {
+      if (trimmed.startsWith("import ") || trimmed.startsWith("from ")) {
         result.push(line);
-        result.push(" ".repeat(sig.indent + 4) + "pass");
+        continue;
+      }
+      if (trimmed.startsWith("@")) {
+        result.push(line);
+        continue;
+      }
+      if (trimmed.startsWith("class ")) {
+        result.push(line);
+        result.push(" ".repeat(indent + 4) + "pass");
         result.push("");
-        return;
+        inFunctionOrClass = true;
+        currentIndent = indent;
+        continue;
       }
-      if (c.startsWith("def ") || c.startsWith("async def ")) {
+      if (trimmed.startsWith("def ") || trimmed.startsWith("async def ")) {
         result.push(line);
-        result.push(" ".repeat(sig.indent + 4) + "pass");
+        result.push(" ".repeat(indent + 4) + "pass");
         result.push("");
-        return;
+        inFunctionOrClass = true;
+        currentIndent = indent;
+        continue;
       }
-    });
+    }
     return result.join("\n");
   }
 
