@@ -124,7 +124,7 @@ export function getEditorStyles() {
             white-space: pre;
             background: transparent;
             color: transparent;
-            caret-color: #fff;
+            caret-color: var(--ide-text, #d4d4d4);
             border: none;
             outline: none;
             resize: none;

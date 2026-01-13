@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T01:15:16.628Z
+ * 自动构建于 2026-01-13T02:31:45.670Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -4442,7 +4442,7 @@ ${editedContent}
             white-space: pre;
             background: transparent;
             color: transparent;
-            caret-color: #fff;
+            caret-color: var(--ide-text, #d4d4d4);
             border: none;
             outline: none;
             resize: none;
