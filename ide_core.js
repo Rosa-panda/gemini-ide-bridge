@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T01:11:18.984Z
+ * 自动构建于 2026-01-13T01:15:16.628Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6604,7 +6604,7 @@ ${content}`;
     const result = [];
     let inBlockComment = false;
     let braceDepth = 0;
-    let inFunctionBody = false;
+    let inBody = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trim();
@@ -6615,134 +6615,85 @@ ${content}`;
         continue;
       }
       if (trimmed.startsWith("//")) continue;
-      if (inFunctionBody) {
+      if (inBody) {
         for (const char of line) {
           if (char === "{") braceDepth++;
           if (char === "}") braceDepth--;
         }
-        if (braceDepth === 0) {
-          inFunctionBody = false;
-        }
+        if (braceDepth === 0) inBody = false;
         continue;
       }
-      if (trimmed.startsWith("import ") || trimmed.startsWith("export ")) {
-        if (trimmed.includes("function ") || trimmed.includes("class ")) {
-          const lastBraceIdx = line.lastIndexOf("{");
-          const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
-          result.push(signature + " { /* ... */ }");
-          if (lastBraceIdx !== -1) {
-            inFunctionBody = true;
-            braceDepth = 1;
-            const afterBrace = line.substring(lastBraceIdx + 1);
-            for (const char of afterBrace) {
-              if (char === "{") braceDepth++;
-              if (char === "}") braceDepth--;
-            }
-            if (braceDepth === 0) inFunctionBody = false;
-          }
-        } else if (trimmed.includes("= {") || trimmed.includes("={")) {
-          result.push(line.split("=")[0].trim() + " = { /* ... */ }");
-          if (line.includes("{")) {
-            inFunctionBody = true;
-            braceDepth = 1;
-            const afterBrace = line.substring(line.indexOf("{") + 1);
-            for (const char of afterBrace) {
-              if (char === "{") braceDepth++;
-              if (char === "}") braceDepth--;
-            }
-            if (braceDepth === 0) inFunctionBody = false;
-          }
-        } else {
-          result.push(line);
-        }
-        continue;
-      }
-      if (trimmed.startsWith("function ") || trimmed.startsWith("async function ")) {
+      if (!trimmed.startsWith("export ")) continue;
+      if (trimmed.includes("function ") || trimmed.includes("class ")) {
         const lastBraceIdx = line.lastIndexOf("{");
         const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
         result.push(signature + " { /* ... */ }");
         if (lastBraceIdx !== -1) {
-          inFunctionBody = true;
+          inBody = true;
           braceDepth = 1;
           const afterBrace = line.substring(lastBraceIdx + 1);
           for (const char of afterBrace) {
             if (char === "{") braceDepth++;
             if (char === "}") braceDepth--;
           }
-          if (braceDepth === 0) inFunctionBody = false;
+          if (braceDepth === 0) inBody = false;
         }
         continue;
       }
-      if (trimmed.startsWith("class ")) {
-        const signature = line.split("{")[0].trim();
-        result.push(signature + " { /* ... */ }");
+      if (trimmed.includes("= {") || trimmed.includes("={")) {
+        result.push(line.split("=")[0].trim() + " = { /* ... */ }");
         if (line.includes("{")) {
-          inFunctionBody = true;
+          inBody = true;
           braceDepth = 1;
           const afterBrace = line.substring(line.indexOf("{") + 1);
           for (const char of afterBrace) {
             if (char === "{") braceDepth++;
             if (char === "}") braceDepth--;
           }
-          if (braceDepth === 0) inFunctionBody = false;
+          if (braceDepth === 0) inBody = false;
         }
         continue;
       }
-      if (trimmed.startsWith("interface ") || trimmed.startsWith("type ")) {
-        result.push(line);
-        if (line.includes("{")) {
-          inFunctionBody = true;
-          braceDepth = 1;
-          const afterBrace = line.substring(line.indexOf("{") + 1);
-          for (const char of afterBrace) {
-            if (char === "{") braceDepth++;
-            if (char === "}") braceDepth--;
-          }
-          if (braceDepth === 0) inFunctionBody = false;
-        }
-        continue;
-      }
+      result.push(line);
     }
     return result.join("\n");
   }
   function generatePythonSkeleton(lines) {
     const result = [];
-    let inFunctionOrClass = false;
-    let currentIndent = 0;
+    let inBody = false;
+    let bodyIndent = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
       const indent = line.length - line.trimStart().length;
-      if (inFunctionOrClass && indent > currentIndent) {
-        continue;
-      }
-      if (inFunctionOrClass && indent <= currentIndent) {
-        inFunctionOrClass = false;
+      if (inBody) {
+        if (indent <= bodyIndent && trimmed) {
+          inBody = false;
+        } else {
+          continue;
+        }
       }
       if (trimmed.startsWith("import ") || trimmed.startsWith("from ")) {
-        result.push(line);
         continue;
       }
-      if (trimmed.startsWith("@")) {
-        result.push(line);
-        continue;
-      }
-      if (trimmed.startsWith("class ")) {
-        result.push(line);
-        result.push(" ".repeat(indent + 4) + "pass");
-        result.push("");
-        inFunctionOrClass = true;
-        currentIndent = indent;
-        continue;
-      }
-      if (trimmed.startsWith("def ") || trimmed.startsWith("async def ")) {
-        result.push(line);
-        result.push(" ".repeat(indent + 4) + "pass");
-        result.push("");
-        inFunctionOrClass = true;
-        currentIndent = indent;
-        continue;
+      if (indent === 0) {
+        if (trimmed.startsWith("class ")) {
+          result.push(line);
+          result.push("    pass");
+          result.push("");
+          inBody = true;
+          bodyIndent = 0;
+          continue;
+        }
+        if (trimmed.startsWith("def ") || trimmed.startsWith("async def ")) {
+          result.push(line);
+          result.push("    pass");
+          result.push("");
+          inBody = true;
+          bodyIndent = 0;
+          continue;
+        }
       }
     }
     return result.join("\n");

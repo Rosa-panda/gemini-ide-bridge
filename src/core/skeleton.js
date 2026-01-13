@@ -25,13 +25,13 @@ export function generateSkeleton(code, filePath) {
 
 /**
  * 生成 JavaScript/TypeScript 的结构化骨架
- * 只保留顶层声明,不进入函数体
+ * 只保留 export 声明,不保留 import 和内部函数
  */
 function generateJsSkeleton(lines) {
     const result = [];
     let inBlockComment = false;
-    let braceDepth = 0;  // 追踪大括号深度
-    let inFunctionBody = false;
+    let braceDepth = 0;
+    let inBody = false;
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -50,110 +50,55 @@ function generateJsSkeleton(lines) {
         // 跳过单行注释
         if (trimmed.startsWith('//')) continue;
         
-        // 如果在函数体内,只追踪大括号,不输出内容
-        if (inFunctionBody) {
-            // 统计这行的大括号
+        // 如果在函数/类/对象体内,只追踪大括号
+        if (inBody) {
             for (const char of line) {
                 if (char === '{') braceDepth++;
                 if (char === '}') braceDepth--;
             }
-            // 如果回到顶层,退出函数体
-            if (braceDepth === 0) {
-                inFunctionBody = false;
-            }
+            if (braceDepth === 0) inBody = false;
             continue;
         }
         
-        // 导入/导出语句
-        if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {
-            // 如果是 export function/class,继续处理
-            if (trimmed.includes('function ') || trimmed.includes('class ')) {
-                // 找函数体的 { (最后一个)
-                const lastBraceIdx = line.lastIndexOf('{');
-                const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
-                result.push(signature + ' { /* ... */ }');
-                // 如果这行有 {,进入函数体模式
-                if (lastBraceIdx !== -1) {
-                    inFunctionBody = true;
-                    braceDepth = 1;
-                    // 统计这行剩余的大括号
-                    const afterBrace = line.substring(lastBraceIdx + 1);
-                    for (const char of afterBrace) {
-                        if (char === '{') braceDepth++;
-                        if (char === '}') braceDepth--;
-                    }
-                    if (braceDepth === 0) inFunctionBody = false;
-                }
-            } else if (trimmed.includes('= {') || trimmed.includes('={')) {
-                // export const xxx = { ... } 这种对象定义
-                result.push(line.split('=')[0].trim() + ' = { /* ... */ }');
-                if (line.includes('{')) {
-                    inFunctionBody = true;
-                    braceDepth = 1;
-                    const afterBrace = line.substring(line.indexOf('{') + 1);
-                    for (const char of afterBrace) {
-                        if (char === '{') braceDepth++;
-                        if (char === '}') braceDepth--;
-                    }
-                    if (braceDepth === 0) inFunctionBody = false;
-                }
-            } else {
-                // 普通的 import/export
-                result.push(line);
-            }
-            continue;
-        }
+        // 只处理 export 开头的语句
+        if (!trimmed.startsWith('export ')) continue;
         
-        // 顶层函数定义
-        if (trimmed.startsWith('function ') || trimmed.startsWith('async function ')) {
+        // export function / export class
+        if (trimmed.includes('function ') || trimmed.includes('class ')) {
             const lastBraceIdx = line.lastIndexOf('{');
             const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
             result.push(signature + ' { /* ... */ }');
             if (lastBraceIdx !== -1) {
-                inFunctionBody = true;
+                inBody = true;
                 braceDepth = 1;
                 const afterBrace = line.substring(lastBraceIdx + 1);
                 for (const char of afterBrace) {
                     if (char === '{') braceDepth++;
                     if (char === '}') braceDepth--;
                 }
-                if (braceDepth === 0) inFunctionBody = false;
+                if (braceDepth === 0) inBody = false;
             }
             continue;
         }
         
-        // 类定义
-        if (trimmed.startsWith('class ')) {
-            const signature = line.split('{')[0].trim();
-            result.push(signature + ' { /* ... */ }');
+        // export const xxx = { ... } 对象定义
+        if (trimmed.includes('= {') || trimmed.includes('={')) {
+            result.push(line.split('=')[0].trim() + ' = { /* ... */ }');
             if (line.includes('{')) {
-                inFunctionBody = true;
+                inBody = true;
                 braceDepth = 1;
                 const afterBrace = line.substring(line.indexOf('{') + 1);
                 for (const char of afterBrace) {
                     if (char === '{') braceDepth++;
                     if (char === '}') braceDepth--;
                 }
-                if (braceDepth === 0) inFunctionBody = false;
+                if (braceDepth === 0) inBody = false;
             }
             continue;
         }
         
-        // 类型定义
-        if (trimmed.startsWith('interface ') || trimmed.startsWith('type ')) {
-            result.push(line);
-            if (line.includes('{')) {
-                inFunctionBody = true;
-                braceDepth = 1;
-                const afterBrace = line.substring(line.indexOf('{') + 1);
-                for (const char of afterBrace) {
-                    if (char === '{') braceDepth++;
-                    if (char === '}') braceDepth--;
-                }
-                if (braceDepth === 0) inFunctionBody = false;
-            }
-            continue;
-        }
+        // 其他 export (re-export, export const xxx = value 等)
+        result.push(line);
     }
     
     return result.join('\n');
@@ -161,12 +106,12 @@ function generateJsSkeleton(lines) {
 
 /**
  * 生成 Python 的结构化骨架
- * 只保留顶层声明
+ * 只保留顶层的类和函数定义,不保留 import 和嵌套定义
  */
 function generatePythonSkeleton(lines) {
     const result = [];
-    let inFunctionOrClass = false;
-    let currentIndent = 0;
+    let inBody = false;
+    let bodyIndent = 0;
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -178,46 +123,39 @@ function generatePythonSkeleton(lines) {
         // 计算缩进
         const indent = line.length - line.trimStart().length;
         
-        // 如果在函数/类内部,且缩进更深,跳过
-        if (inFunctionOrClass && indent > currentIndent) {
-            continue;
+        // 如果在函数/类内部,跳过
+        if (inBody) {
+            if (indent <= bodyIndent && trimmed) {
+                inBody = false;
+            } else {
+                continue;
+            }
         }
         
-        // 回到顶层
-        if (inFunctionOrClass && indent <= currentIndent) {
-            inFunctionOrClass = false;
-        }
-        
-        // 导入语句
+        // 跳过 import
         if (trimmed.startsWith('import ') || trimmed.startsWith('from ')) {
-            result.push(line);
             continue;
         }
         
-        // 装饰器
-        if (trimmed.startsWith('@')) {
-            result.push(line);
-            continue;
-        }
-        
-        // 类定义
-        if (trimmed.startsWith('class ')) {
-            result.push(line);
-            result.push(' '.repeat(indent + 4) + 'pass');
-            result.push('');
-            inFunctionOrClass = true;
-            currentIndent = indent;
-            continue;
-        }
-        
-        // 函数定义
-        if (trimmed.startsWith('def ') || trimmed.startsWith('async def ')) {
-            result.push(line);
-            result.push(' '.repeat(indent + 4) + 'pass');
-            result.push('');
-            inFunctionOrClass = true;
-            currentIndent = indent;
-            continue;
+        // 只保留顶层(缩进为0)的类和函数
+        if (indent === 0) {
+            if (trimmed.startsWith('class ')) {
+                result.push(line);
+                result.push('    pass');
+                result.push('');
+                inBody = true;
+                bodyIndent = 0;
+                continue;
+            }
+            
+            if (trimmed.startsWith('def ') || trimmed.startsWith('async def ')) {
+                result.push(line);
+                result.push('    pass');
+                result.push('');
+                inBody = true;
+                bodyIndent = 0;
+                continue;
+            }
         }
     }
     
