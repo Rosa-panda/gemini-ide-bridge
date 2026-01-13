@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T03:19:36.640Z
+ * 自动构建于 2026-01-13T08:24:15.949Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -4036,14 +4036,14 @@ ${editedContent}
     const lang = ALIASES[language] || language;
     const commentPrefix = getLineCommentPrefix(lang);
     const lines = code.split("\n");
+    const fragment = document.createDocumentFragment();
     let inBlockComment = false;
     const blockComment = COMMENT_STYLES.block[lang];
     lines.forEach((line, lineIdx) => {
       if (lineIdx > 0) {
-        container.appendChild(document.createTextNode("\n"));
+        fragment.appendChild(document.createTextNode("\n"));
       }
       if (line.length === 0) return;
-      const trimmed = line.trimStart();
       let remaining = line;
       while (remaining.length > 0) {
         if (inBlockComment) {
@@ -4053,14 +4053,14 @@ ${editedContent}
             const span = document.createElement("span");
             span.className = "ide-hl-comment";
             span.textContent = commentPart;
-            container.appendChild(span);
+            fragment.appendChild(span);
             remaining = remaining.slice(endIdx + blockComment[1].length);
             inBlockComment = false;
           } else {
             const span = document.createElement("span");
             span.className = "ide-hl-comment";
             span.textContent = remaining;
-            container.appendChild(span);
+            fragment.appendChild(span);
             remaining = "";
           }
         } else {
@@ -4070,12 +4070,12 @@ ${editedContent}
             if (lineCommentIdx > 0) {
               const codePart = remaining.slice(0, lineCommentIdx);
               const tokens = tokenizeLine(codePart, lang);
-              tokens.forEach((t) => renderToken(t, container));
+              tokens.forEach((t) => renderToken(t, fragment));
             }
             const span = document.createElement("span");
             span.className = "ide-hl-comment";
             span.textContent = remaining.slice(lineCommentIdx);
-            container.appendChild(span);
+            fragment.appendChild(span);
             remaining = "";
             break;
           }
@@ -4083,26 +4083,27 @@ ${editedContent}
             if (startIdx > 0) {
               const codePart = remaining.slice(0, startIdx);
               const tokens = tokenizeLine(codePart, lang);
-              tokens.forEach((t) => renderToken(t, container));
+              tokens.forEach((t) => renderToken(t, fragment));
             }
             remaining = remaining.slice(startIdx);
             inBlockComment = true;
           } else {
             const tokens = tokenizeLine(remaining, lang);
-            tokens.forEach((t) => renderToken(t, container));
+            tokens.forEach((t) => renderToken(t, fragment));
             remaining = "";
           }
         }
       }
     });
-    function renderToken(token, container2) {
+    container.appendChild(fragment);
+    function renderToken(token, target) {
       if (token.type) {
         const span = document.createElement("span");
         span.className = `ide-hl-${token.type}`;
         span.textContent = token.text;
-        container2.appendChild(span);
+        target.appendChild(span);
       } else {
-        container2.appendChild(document.createTextNode(token.text));
+        target.appendChild(document.createTextNode(token.text));
       }
     }
   }

@@ -209,18 +209,19 @@ export function highlightToDOM(code, language, container) {
     const commentPrefix = getLineCommentPrefix(lang);
     const lines = code.split('\n');
     
+    // 使用 DocumentFragment 减少重绘
+    const fragment = document.createDocumentFragment();
+    
     // 多行注释状态
     let inBlockComment = false;
     const blockComment = COMMENT_STYLES.block[lang];
     
     lines.forEach((line, lineIdx) => {
         if (lineIdx > 0) {
-            container.appendChild(document.createTextNode('\n'));
+            fragment.appendChild(document.createTextNode('\n'));
         }
         
         if (line.length === 0) return;
-        
-        const trimmed = line.trimStart();
         
         // 复杂状态处理：支持单行内混合代码和多行注释
         let remaining = line;
@@ -236,7 +237,7 @@ export function highlightToDOM(code, language, container) {
                     const span = document.createElement('span');
                     span.className = 'ide-hl-comment';
                     span.textContent = commentPart;
-                    container.appendChild(span);
+                    fragment.appendChild(span);
                     
                     remaining = remaining.slice(endIdx + blockComment[1].length);
                     inBlockComment = false;
@@ -245,7 +246,7 @@ export function highlightToDOM(code, language, container) {
                     const span = document.createElement('span');
                     span.className = 'ide-hl-comment';
                     span.textContent = remaining;
-                    container.appendChild(span);
+                    fragment.appendChild(span);
                     remaining = '';
                 }
             } else {
@@ -259,13 +260,13 @@ export function highlightToDOM(code, language, container) {
                     if (lineCommentIdx > 0) {
                         const codePart = remaining.slice(0, lineCommentIdx);
                         const tokens = tokenizeLine(codePart, lang);
-                        tokens.forEach(t => renderToken(t, container));
+                        tokens.forEach(t => renderToken(t, fragment));
                     }
                     // 处理剩下的整行注释
                     const span = document.createElement('span');
                     span.className = 'ide-hl-comment';
                     span.textContent = remaining.slice(lineCommentIdx);
-                    container.appendChild(span);
+                    fragment.appendChild(span);
                     remaining = '';
                     break;
                 }
@@ -276,29 +277,32 @@ export function highlightToDOM(code, language, container) {
                     if (startIdx > 0) {
                         const codePart = remaining.slice(0, startIdx);
                         const tokens = tokenizeLine(codePart, lang);
-                        tokens.forEach(t => renderToken(t, container));
+                        tokens.forEach(t => renderToken(t, fragment));
                     }
                     remaining = remaining.slice(startIdx);
                     inBlockComment = true;
                 } else {
                     // 只有代码
                     const tokens = tokenizeLine(remaining, lang);
-                    tokens.forEach(t => renderToken(t, container));
+                    tokens.forEach(t => renderToken(t, fragment));
                     remaining = '';
                 }
             }
         }
     });
 
+    // 一次性挂载
+    container.appendChild(fragment);
+
     /* 辅助渲染函数 */
-    function renderToken(token, container) {
+    function renderToken(token, target) {
         if (token.type) {
             const span = document.createElement('span');
             span.className = `ide-hl-${token.type}`;
             span.textContent = token.text;
-            container.appendChild(span);
+            target.appendChild(span);
         } else {
-            container.appendChild(document.createTextNode(token.text));
+            target.appendChild(document.createTextNode(token.text));
         }
     }
 }
