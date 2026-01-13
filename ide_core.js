@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-12T15:48:32.240Z
+ * 自动构建于 2026-01-13T00:50:19.068Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
