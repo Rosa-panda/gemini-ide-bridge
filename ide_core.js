@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T00:58:35.465Z
+ * 自动构建于 2026-01-13T01:01:07.715Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6604,10 +6604,6 @@ if __name__ == "__main__":
       var _a;
       const c = sig.content.trim();
       const line = lines[sig.originalIndex];
-      const prevLine = sig.originalIndex > 0 ? lines[sig.originalIndex - 1] : "";
-      if (prevLine.trim().startsWith("/**") || prevLine.trim().startsWith("///")) {
-        result.push(prevLine);
-      }
       if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
         if (currentClass) {
           result.push(" ".repeat(currentIndent) + "}");
@@ -6615,24 +6611,16 @@ if __name__ == "__main__":
         }
         currentClass = ((_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1]) || "Default";
         currentIndent = sig.indent;
-        result.push(line.split("{")[0].trim() + " {");
+        result.push(line.split("{")[0].trim() + " { /* ... */ }");
         return;
       }
       if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
         let signature = line.split("{")[0].split("=>")[0].trim();
-        if (currentClass) {
-          result.push(" ".repeat(sig.indent) + signature + " { /* ... */ }");
-        } else {
-          result.push(signature + " { /* ... */ }");
-        }
+        result.push(signature + " { /* ... */ }");
         return;
       }
       if (c.startsWith("import ") || c.startsWith("export ") || c.startsWith("interface ") || c.startsWith("type ")) {
         result.push(line);
-        return;
-      }
-      if (c.startsWith("export const ") || c.startsWith("export let ") || c.startsWith("export var ")) {
-        result.push(line.split("=")[0] + "= ...;");
         return;
       }
     });
@@ -6643,13 +6631,9 @@ if __name__ == "__main__":
   }
   function generatePythonSkeleton(lines, sigs) {
     const result = [];
-    let currentClass = null;
-    let currentIndent = 0;
     sigs.forEach((sig, index) => {
-      var _a;
       const c = sig.content.trim();
       const line = lines[sig.originalIndex];
-      const nextLine = sig.originalIndex < lines.length - 1 ? lines[sig.originalIndex + 1] : "";
       if (c.startsWith("import ") || c.startsWith("from ")) {
         result.push(line);
         return;
@@ -6659,34 +6643,14 @@ if __name__ == "__main__":
         return;
       }
       if (c.startsWith("class ")) {
-        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
-        currentIndent = sig.indent;
         result.push(line);
-        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
-          result.push(nextLine);
-          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
-            result.push(lines[i]);
-            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
-              break;
-            }
-          }
-        }
-        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push(" ".repeat(sig.indent + 4) + "pass");
         result.push("");
         return;
       }
       if (c.startsWith("def ") || c.startsWith("async def ")) {
         result.push(line);
-        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
-          result.push(nextLine);
-          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
-            result.push(lines[i]);
-            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
-              break;
-            }
-          }
-        }
-        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push(" ".repeat(sig.indent + 4) + "pass");
         result.push("");
         return;
       }
