@@ -7,6 +7,7 @@ import { gemini } from '../gemini/index.js';
 import { depsAnalyzer } from '../core/deps.js';
 import { showHistoryDialog, showEditorDialog } from '../dialog/index.js';
 import { showToast, getLanguage, formatTokens } from '../shared/utils.js';
+import { generateSkeleton } from '../core/skeleton.js';
 
 /**
  * 创建菜单项
@@ -66,6 +67,54 @@ export function showFolderContextMenu(e, node, refreshTree, collectFiles) {
         const result = gemini.insertToInput(content);
         if (result.success) {
             showToast(`已发送 (~${formatTokens(result.tokens)} tokens)`);
+        }
+    }));
+
+    // 发送骨架图
+    menu.appendChild(createMenuItem('🗺️ 发送骨架图', async () => {
+        showToast('生成骨架图中...', 'info');
+        try {
+            // 收集该文件夹下的所有文件路径
+            const collectFilePaths = (n) => {
+                const paths = [];
+                if (n.kind === 'file') {
+                    paths.push(n.path);
+                } else if (n.children) {
+                    for (const child of n.children) {
+                        paths.push(...collectFilePaths(child));
+                    }
+                }
+                return paths;
+            };
+            
+            const filePaths = collectFilePaths(node);
+            const skeletons = [];
+            
+            for (const path of filePaths) {
+                // 跳过二进制文件和大文件
+                if (path.match(/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz)$/i)) continue;
+                
+                const content = await fs.readFile(path);
+                if (content === null || content.length > 100000) continue;
+                
+                const skeleton = generateSkeleton(content, path);
+                if (skeleton.trim()) {
+                    skeletons.push(skeleton);
+                }
+            }
+            
+            if (skeletons.length === 0) {
+                showToast('该目录下没有可分析的代码文件', 'error');
+                return;
+            }
+            
+            const fullMap = skeletons.join('\n\n');
+            const result = gemini.insertToInput(`# ${node.name} 目录骨架图\n\n${fullMap}\n\n---\n请分析这个目录的结构和功能。`);
+            if (result.success) {
+                showToast(`已发送骨架图 (~${formatTokens(result.tokens)} tokens)`);
+            }
+        } catch (err) {
+            showToast('生成失败: ' + err.message, 'error');
         }
     }));
 

@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T00:50:19.068Z
+ * 自动构建于 2026-01-13T00:58:35.465Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6584,6 +6584,116 @@ if __name__ == "__main__":
     getFileType
   };
 
+  // src/core/skeleton.js
+  function generateSkeleton(code, filePath) {
+    const ext = filePath.split(".").pop().toLowerCase();
+    const lines = code.split("\n");
+    const sigs = getLogicSignature(code);
+    let skeleton = `// ========== FILE: ${filePath} ==========
+`;
+    if (ext === "py") {
+      return skeleton + generatePythonSkeleton(lines, sigs);
+    }
+    return skeleton + generateJsSkeleton(lines, sigs);
+  }
+  function generateJsSkeleton(lines, sigs) {
+    const result = [];
+    let currentClass = null;
+    let currentIndent = 0;
+    sigs.forEach((sig, index) => {
+      var _a;
+      const c = sig.content.trim();
+      const line = lines[sig.originalIndex];
+      const prevLine = sig.originalIndex > 0 ? lines[sig.originalIndex - 1] : "";
+      if (prevLine.trim().startsWith("/**") || prevLine.trim().startsWith("///")) {
+        result.push(prevLine);
+      }
+      if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
+        if (currentClass) {
+          result.push(" ".repeat(currentIndent) + "}");
+          result.push("");
+        }
+        currentClass = ((_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1]) || "Default";
+        currentIndent = sig.indent;
+        result.push(line.split("{")[0].trim() + " {");
+        return;
+      }
+      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
+        let signature = line.split("{")[0].split("=>")[0].trim();
+        if (currentClass) {
+          result.push(" ".repeat(sig.indent) + signature + " { /* ... */ }");
+        } else {
+          result.push(signature + " { /* ... */ }");
+        }
+        return;
+      }
+      if (c.startsWith("import ") || c.startsWith("export ") || c.startsWith("interface ") || c.startsWith("type ")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("export const ") || c.startsWith("export let ") || c.startsWith("export var ")) {
+        result.push(line.split("=")[0] + "= ...;");
+        return;
+      }
+    });
+    if (currentClass) {
+      result.push(" ".repeat(currentIndent) + "}");
+    }
+    return result.join("\n");
+  }
+  function generatePythonSkeleton(lines, sigs) {
+    const result = [];
+    let currentClass = null;
+    let currentIndent = 0;
+    sigs.forEach((sig, index) => {
+      var _a;
+      const c = sig.content.trim();
+      const line = lines[sig.originalIndex];
+      const nextLine = sig.originalIndex < lines.length - 1 ? lines[sig.originalIndex + 1] : "";
+      if (c.startsWith("import ") || c.startsWith("from ")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("@")) {
+        result.push(line);
+        return;
+      }
+      if (c.startsWith("class ")) {
+        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
+        currentIndent = sig.indent;
+        result.push(line);
+        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
+          result.push(nextLine);
+          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
+            result.push(lines[i]);
+            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
+              break;
+            }
+          }
+        }
+        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push("");
+        return;
+      }
+      if (c.startsWith("def ") || c.startsWith("async def ")) {
+        result.push(line);
+        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
+          result.push(nextLine);
+          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
+            result.push(lines[i]);
+            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
+              break;
+            }
+          }
+        }
+        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
+        result.push("");
+        return;
+      }
+    });
+    return result.join("\n");
+  }
+
   // src/ui/menu.js
   function createMenuItem(text, onClick, bgColor = null) {
     const item = document.createElement("div");
@@ -6632,6 +6742,49 @@ if __name__ == "__main__":
       const result = gemini.insertToInput(content);
       if (result.success) {
         showToast(`\u5DF2\u53D1\u9001 (~${formatTokens(result.tokens)} tokens)`);
+      }
+    }));
+    menu.appendChild(createMenuItem("\u{1F5FA}\uFE0F \u53D1\u9001\u9AA8\u67B6\u56FE", async () => {
+      showToast("\u751F\u6210\u9AA8\u67B6\u56FE\u4E2D...", "info");
+      try {
+        const collectFilePaths = (n) => {
+          const paths = [];
+          if (n.kind === "file") {
+            paths.push(n.path);
+          } else if (n.children) {
+            for (const child of n.children) {
+              paths.push(...collectFilePaths(child));
+            }
+          }
+          return paths;
+        };
+        const filePaths = collectFilePaths(node);
+        const skeletons = [];
+        for (const path of filePaths) {
+          if (path.match(/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz)$/i)) continue;
+          const content = await fs.readFile(path);
+          if (content === null || content.length > 1e5) continue;
+          const skeleton = generateSkeleton(content, path);
+          if (skeleton.trim()) {
+            skeletons.push(skeleton);
+          }
+        }
+        if (skeletons.length === 0) {
+          showToast("\u8BE5\u76EE\u5F55\u4E0B\u6CA1\u6709\u53EF\u5206\u6790\u7684\u4EE3\u7801\u6587\u4EF6", "error");
+          return;
+        }
+        const fullMap = skeletons.join("\n\n");
+        const result = gemini.insertToInput(`# ${node.name} \u76EE\u5F55\u9AA8\u67B6\u56FE
+
+${fullMap}
+
+---
+\u8BF7\u5206\u6790\u8FD9\u4E2A\u76EE\u5F55\u7684\u7ED3\u6784\u548C\u529F\u80FD\u3002`);
+        if (result.success) {
+          showToast(`\u5DF2\u53D1\u9001\u9AA8\u67B6\u56FE (~${formatTokens(result.tokens)} tokens)`);
+        }
+      } catch (err) {
+        showToast("\u751F\u6210\u5931\u8D25: " + err.message, "error");
       }
     }));
     menu.appendChild(createMenuDivider());
@@ -6917,116 +7070,6 @@ ${content}
     renderCallback(currentTree, matches, searchTerm, fileMatchCount);
   }
 
-  // src/core/skeleton.js
-  function generateSkeleton(code, filePath) {
-    const ext = filePath.split(".").pop().toLowerCase();
-    const lines = code.split("\n");
-    const sigs = getLogicSignature(code);
-    let skeleton = `// ========== FILE: ${filePath} ==========
-`;
-    if (ext === "py") {
-      return skeleton + generatePythonSkeleton(lines, sigs);
-    }
-    return skeleton + generateJsSkeleton(lines, sigs);
-  }
-  function generateJsSkeleton(lines, sigs) {
-    const result = [];
-    let currentClass = null;
-    let currentIndent = 0;
-    sigs.forEach((sig, index) => {
-      var _a;
-      const c = sig.content.trim();
-      const line = lines[sig.originalIndex];
-      const prevLine = sig.originalIndex > 0 ? lines[sig.originalIndex - 1] : "";
-      if (prevLine.trim().startsWith("/**") || prevLine.trim().startsWith("///")) {
-        result.push(prevLine);
-      }
-      if (c.includes("class ") && (c.includes("export ") || c.startsWith("class ") || c.startsWith("abstract "))) {
-        if (currentClass) {
-          result.push(" ".repeat(currentIndent) + "}");
-          result.push("");
-        }
-        currentClass = ((_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1]) || "Default";
-        currentIndent = sig.indent;
-        result.push(line.split("{")[0].trim() + " {");
-        return;
-      }
-      if (c.startsWith("function ") || c.startsWith("async function ") || c.startsWith("export function ") || c.startsWith("export async function ") || c.match(/^\w+\s*\([^)]*\)\s*{/) || c.match(/^(\w+\s*[:=]\s*)?(async\s*)?\(?[^)]*\)?\s*=>/)) {
-        let signature = line.split("{")[0].split("=>")[0].trim();
-        if (currentClass) {
-          result.push(" ".repeat(sig.indent) + signature + " { /* ... */ }");
-        } else {
-          result.push(signature + " { /* ... */ }");
-        }
-        return;
-      }
-      if (c.startsWith("import ") || c.startsWith("export ") || c.startsWith("interface ") || c.startsWith("type ")) {
-        result.push(line);
-        return;
-      }
-      if (c.startsWith("export const ") || c.startsWith("export let ") || c.startsWith("export var ")) {
-        result.push(line.split("=")[0] + "= ...;");
-        return;
-      }
-    });
-    if (currentClass) {
-      result.push(" ".repeat(currentIndent) + "}");
-    }
-    return result.join("\n");
-  }
-  function generatePythonSkeleton(lines, sigs) {
-    const result = [];
-    let currentClass = null;
-    let currentIndent = 0;
-    sigs.forEach((sig, index) => {
-      var _a;
-      const c = sig.content.trim();
-      const line = lines[sig.originalIndex];
-      const nextLine = sig.originalIndex < lines.length - 1 ? lines[sig.originalIndex + 1] : "";
-      if (c.startsWith("import ") || c.startsWith("from ")) {
-        result.push(line);
-        return;
-      }
-      if (c.startsWith("@")) {
-        result.push(line);
-        return;
-      }
-      if (c.startsWith("class ")) {
-        currentClass = (_a = c.match(/class\s+(\w+)/)) == null ? void 0 : _a[1];
-        currentIndent = sig.indent;
-        result.push(line);
-        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
-          result.push(nextLine);
-          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
-            result.push(lines[i]);
-            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
-              break;
-            }
-          }
-        }
-        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
-        result.push("");
-        return;
-      }
-      if (c.startsWith("def ") || c.startsWith("async def ")) {
-        result.push(line);
-        if (nextLine.trim().startsWith('"""') || nextLine.trim().startsWith("'''")) {
-          result.push(nextLine);
-          for (let i = sig.originalIndex + 2; i < lines.length; i++) {
-            result.push(lines[i]);
-            if (lines[i].trim().endsWith('"""') || lines[i].trim().endsWith("'''")) {
-              break;
-            }
-          }
-        }
-        result.push(" ".repeat(sig.indent + 4) + "pass  # ...\u5B9E\u73B0\u5DF2\u7701\u7565...");
-        result.push("");
-        return;
-      }
-    });
-    return result.join("\n");
-  }
-
   // src/ui/index.js
   var UI = class {
     constructor() {
@@ -7133,34 +7176,6 @@ ${structure}\`\`\``;
         const result = gemini.insertToInput(text);
         if (result.success) {
           showToast(`\u5DF2\u53D1\u9001\u76EE\u5F55 (~${formatTokens(result.tokens)} tokens)`);
-        }
-      }));
-      actionBar.appendChild(createButton("\u{1F5FA}\uFE0F \u9AA8\u67B6\u56FE", async () => {
-        showToast("\u751F\u6210\u9AA8\u67B6\u56FE\u4E2D...", "info");
-        try {
-          const allFiles = await fs.getAllFilePaths();
-          const skeletons = [];
-          for (const path of allFiles) {
-            if (path.match(/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz)$/i)) continue;
-            const content = await fs.readFile(path);
-            if (content === null || content.length > 1e5) continue;
-            const skeleton = generateSkeleton(content, path);
-            if (skeleton.trim()) {
-              skeletons.push(skeleton);
-            }
-          }
-          const fullMap = skeletons.join("\n\n");
-          const result = gemini.insertToInput(`# \u9879\u76EE\u7ED3\u6784\u9AA8\u67B6\u56FE
-
-${fullMap}
-
----
-\u8BF7\u5206\u6790\u8FD9\u4E2A\u9879\u76EE\u7684\u7ED3\u6784\u548C\u529F\u80FD\u3002`);
-          if (result.success) {
-            showToast(`\u5DF2\u53D1\u9001\u9AA8\u67B6\u56FE (~${formatTokens(result.tokens)} tokens)`);
-          }
-        } catch (err) {
-          showToast("\u751F\u6210\u5931\u8D25: " + err.message, "error");
         }
       }));
       actionBar.appendChild(createButton("\u{1F4E6} \u4EA4\u63A5", () => {

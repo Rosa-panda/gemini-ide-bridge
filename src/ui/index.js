@@ -9,7 +9,6 @@ import { showToast, formatTokens } from '../shared/utils.js';
 import { initThemeStyle, initThemeWatcher } from '../shared/theme.js';
 import { createTrigger, createSidebar, createEmptyState, createContextMenu, createButton } from './sidebar.js';
 import { renderTree, filterTree } from './tree.js';
-import { generateSkeleton } from '../core/skeleton.js';
 
 class UI {
     constructor() {
@@ -142,36 +141,6 @@ class UI {
             const result = gemini.insertToInput(text);
             if (result.success) {
                 showToast(`已发送目录 (~${formatTokens(result.tokens)} tokens)`);
-            }
-        }));
-        
-        // 投喂项目地图（骨架图）
-        actionBar.appendChild(createButton('🗺️ 骨架图', async () => {
-            showToast('生成骨架图中...', 'info');
-            try {
-                const allFiles = await fs.getAllFilePaths();
-                const skeletons = [];
-                
-                for (const path of allFiles) {
-                    // 跳过二进制文件和大文件
-                    if (path.match(/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz)$/i)) continue;
-                    
-                    const content = await fs.readFile(path);
-                    if (content === null || content.length > 100000) continue;
-                    
-                    const skeleton = generateSkeleton(content, path);
-                    if (skeleton.trim()) {
-                        skeletons.push(skeleton);
-                    }
-                }
-                
-                const fullMap = skeletons.join('\n\n');
-                const result = gemini.insertToInput(`# 项目结构骨架图\n\n${fullMap}\n\n---\n请分析这个项目的结构和功能。`);
-                if (result.success) {
-                    showToast(`已发送骨架图 (~${formatTokens(result.tokens)} tokens)`);
-                }
-            } catch (err) {
-                showToast('生成失败: ' + err.message, 'error');
             }
         }));
         
