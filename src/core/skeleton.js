@@ -68,14 +68,16 @@ function generateJsSkeleton(lines) {
         if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {
             // 如果是 export function/class,继续处理
             if (trimmed.includes('function ') || trimmed.includes('class ')) {
-                const signature = line.split('{')[0].trim();
+                // 找函数体的 { (最后一个)
+                const lastBraceIdx = line.lastIndexOf('{');
+                const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
                 result.push(signature + ' { /* ... */ }');
                 // 如果这行有 {,进入函数体模式
-                if (line.includes('{')) {
+                if (lastBraceIdx !== -1) {
                     inFunctionBody = true;
                     braceDepth = 1;
                     // 统计这行剩余的大括号
-                    const afterBrace = line.substring(line.indexOf('{') + 1);
+                    const afterBrace = line.substring(lastBraceIdx + 1);
                     for (const char of afterBrace) {
                         if (char === '{') braceDepth++;
                         if (char === '}') braceDepth--;
@@ -104,12 +106,13 @@ function generateJsSkeleton(lines) {
         
         // 顶层函数定义
         if (trimmed.startsWith('function ') || trimmed.startsWith('async function ')) {
-            const signature = line.split('{')[0].trim();
+            const lastBraceIdx = line.lastIndexOf('{');
+            const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
             result.push(signature + ' { /* ... */ }');
-            if (line.includes('{')) {
+            if (lastBraceIdx !== -1) {
                 inFunctionBody = true;
                 braceDepth = 1;
-                const afterBrace = line.substring(line.indexOf('{') + 1);
+                const afterBrace = line.substring(lastBraceIdx + 1);
                 for (const char of afterBrace) {
                     if (char === '{') braceDepth++;
                     if (char === '}') braceDepth--;

@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T01:05:33.114Z
+ * 自动构建于 2026-01-13T01:11:18.984Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6627,12 +6627,13 @@ ${content}`;
       }
       if (trimmed.startsWith("import ") || trimmed.startsWith("export ")) {
         if (trimmed.includes("function ") || trimmed.includes("class ")) {
-          const signature = line.split("{")[0].trim();
+          const lastBraceIdx = line.lastIndexOf("{");
+          const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
           result.push(signature + " { /* ... */ }");
-          if (line.includes("{")) {
+          if (lastBraceIdx !== -1) {
             inFunctionBody = true;
             braceDepth = 1;
-            const afterBrace = line.substring(line.indexOf("{") + 1);
+            const afterBrace = line.substring(lastBraceIdx + 1);
             for (const char of afterBrace) {
               if (char === "{") braceDepth++;
               if (char === "}") braceDepth--;
@@ -6657,12 +6658,13 @@ ${content}`;
         continue;
       }
       if (trimmed.startsWith("function ") || trimmed.startsWith("async function ")) {
-        const signature = line.split("{")[0].trim();
+        const lastBraceIdx = line.lastIndexOf("{");
+        const signature = lastBraceIdx !== -1 ? line.substring(0, lastBraceIdx).trim() : line.trim();
         result.push(signature + " { /* ... */ }");
-        if (line.includes("{")) {
+        if (lastBraceIdx !== -1) {
           inFunctionBody = true;
           braceDepth = 1;
-          const afterBrace = line.substring(line.indexOf("{") + 1);
+          const afterBrace = line.substring(lastBraceIdx + 1);
           for (const char of afterBrace) {
             if (char === "{") braceDepth++;
             if (char === "}") braceDepth--;
