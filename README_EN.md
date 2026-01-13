@@ -1,5 +1,7 @@
 # Gemini IDE Bridge
 
+English | **[中文](./README.md)**
+
 > Let Gemini directly operate your local file system
 
 A pure native JS Chrome extension with zero dependencies and zero build toolchain.

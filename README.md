@@ -1,5 +1,7 @@
 # Gemini IDE Bridge
 
+**[English](./README_EN.md)** | 中文
+
 > 让 Gemini 直接操作你的本地文件系统
 
 一个纯原生 JS 实现的 Chrome 扩展，零依赖，零构建工具链。
