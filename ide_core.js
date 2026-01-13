@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T01:03:03.129Z
+ * 自动构建于 2026-01-13T01:05:33.114Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6588,12 +6588,17 @@ if __name__ == "__main__":
   function generateSkeleton(code, filePath) {
     const ext = filePath.split(".").pop().toLowerCase();
     const lines = code.split("\n");
-    let skeleton = `// ========== FILE: ${filePath} ==========
-`;
+    let content = "";
     if (ext === "py") {
-      return skeleton + generatePythonSkeleton(lines);
+      content = generatePythonSkeleton(lines);
+    } else {
+      content = generateJsSkeleton(lines);
     }
-    return skeleton + generateJsSkeleton(lines);
+    if (!content.trim()) {
+      return "";
+    }
+    return `// ========== FILE: ${filePath} ==========
+${content}`;
   }
   function generateJsSkeleton(lines) {
     const result = [];
@@ -6624,6 +6629,18 @@ if __name__ == "__main__":
         if (trimmed.includes("function ") || trimmed.includes("class ")) {
           const signature = line.split("{")[0].trim();
           result.push(signature + " { /* ... */ }");
+          if (line.includes("{")) {
+            inFunctionBody = true;
+            braceDepth = 1;
+            const afterBrace = line.substring(line.indexOf("{") + 1);
+            for (const char of afterBrace) {
+              if (char === "{") braceDepth++;
+              if (char === "}") braceDepth--;
+            }
+            if (braceDepth === 0) inFunctionBody = false;
+          }
+        } else if (trimmed.includes("= {") || trimmed.includes("={")) {
+          result.push(line.split("=")[0].trim() + " = { /* ... */ }");
           if (line.includes("{")) {
             inFunctionBody = true;
             braceDepth = 1;

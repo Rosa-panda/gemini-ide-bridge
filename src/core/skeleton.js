@@ -7,13 +7,20 @@ export function generateSkeleton(code, filePath) {
     const ext = filePath.split('.').pop().toLowerCase();
     const lines = code.split('\n');
     
-    let skeleton = `// ========== FILE: ${filePath} ==========\n`;
-    
     // 针对不同语言的提取逻辑
+    let content = '';
     if (ext === 'py') {
-        return skeleton + generatePythonSkeleton(lines);
+        content = generatePythonSkeleton(lines);
+    } else {
+        content = generateJsSkeleton(lines);
     }
-    return skeleton + generateJsSkeleton(lines);
+    
+    // 如果没有提取到任何内容,返回空字符串
+    if (!content.trim()) {
+        return '';
+    }
+    
+    return `// ========== FILE: ${filePath} ==========\n${content}`;
 }
 
 /**
@@ -68,6 +75,19 @@ function generateJsSkeleton(lines) {
                     inFunctionBody = true;
                     braceDepth = 1;
                     // 统计这行剩余的大括号
+                    const afterBrace = line.substring(line.indexOf('{') + 1);
+                    for (const char of afterBrace) {
+                        if (char === '{') braceDepth++;
+                        if (char === '}') braceDepth--;
+                    }
+                    if (braceDepth === 0) inFunctionBody = false;
+                }
+            } else if (trimmed.includes('= {') || trimmed.includes('={')) {
+                // export const xxx = { ... } 这种对象定义
+                result.push(line.split('=')[0].trim() + ' = { /* ... */ }');
+                if (line.includes('{')) {
+                    inFunctionBody = true;
+                    braceDepth = 1;
                     const afterBrace = line.substring(line.indexOf('{') + 1);
                     for (const char of afterBrace) {
                         if (char === '{') braceDepth++;
