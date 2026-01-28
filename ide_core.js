@@ -1,6 +1,6 @@
 /**
  * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-13T08:24:15.949Z
+ * 自动构建于 2026-01-28T13:23:05.072Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -6142,6 +6142,14 @@ if __name__ == "__main__":
     let isDragging = false;
     let hasMoved = false;
     let startX, startY, startRight, startBottom;
+    const applyPosition = (right, bottom) => {
+      const maxRight = Math.max(10, window.innerWidth - 60);
+      const maxBottom = Math.max(10, window.innerHeight - 60);
+      const clampedRight = Math.max(10, Math.min(maxRight, right));
+      const clampedBottom = Math.max(10, Math.min(maxBottom, bottom));
+      trigger.style.right = `${clampedRight}px`;
+      trigger.style.bottom = `${clampedBottom}px`;
+    };
     trigger.onmousedown = (e) => {
       if (e.button !== 0) return;
       isDragging = true;
@@ -6161,10 +6169,7 @@ if __name__ == "__main__":
       if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
         hasMoved = true;
       }
-      let newRight = Math.max(10, Math.min(window.innerWidth - 60, startRight + deltaX));
-      let newBottom = Math.max(10, Math.min(window.innerHeight - 60, startBottom + deltaY));
-      trigger.style.right = newRight + "px";
-      trigger.style.bottom = newBottom + "px";
+      applyPosition(startRight + deltaX, startBottom + deltaY);
     });
     document.addEventListener("mouseup", () => {
       if (isDragging) {
@@ -6180,11 +6185,16 @@ if __name__ == "__main__":
     try {
       const savedPos = JSON.parse(localStorage.getItem("ide-trigger-pos"));
       if (savedPos) {
-        trigger.style.right = savedPos.right + "px";
-        trigger.style.bottom = savedPos.bottom + "px";
+        applyPosition(savedPos.right, savedPos.bottom);
+      } else {
+        applyPosition(20, 20);
       }
     } catch (e) {
+      applyPosition(20, 20);
     }
+    window.addEventListener("resize", () => {
+      applyPosition(parseInt(trigger.style.right) || 20, parseInt(trigger.style.bottom) || 20);
+    });
     trigger.onmouseover = () => {
       if (isDragging) return;
       trigger.style.transform = "scale(1.1)";

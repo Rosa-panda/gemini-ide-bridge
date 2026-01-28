@@ -29,6 +29,15 @@ export function createTrigger(currentTree) {
     let hasMoved = false;
     let startX, startY, startRight, startBottom;
 
+    const applyPosition = (right, bottom) => {
+        const maxRight = Math.max(10, window.innerWidth - 60);
+        const maxBottom = Math.max(10, window.innerHeight - 60);
+        const clampedRight = Math.max(10, Math.min(maxRight, right));
+        const clampedBottom = Math.max(10, Math.min(maxBottom, bottom));
+        trigger.style.right = `${clampedRight}px`;
+        trigger.style.bottom = `${clampedBottom}px`;
+    };
+
     trigger.onmousedown = (e) => {
         if (e.button !== 0) return; // 只响应左键
         isDragging = true;
@@ -53,12 +62,7 @@ export function createTrigger(currentTree) {
             hasMoved = true;
         }
         
-        // 计算新位置，限制在视口内
-        let newRight = Math.max(10, Math.min(window.innerWidth - 60, startRight + deltaX));
-        let newBottom = Math.max(10, Math.min(window.innerHeight - 60, startBottom + deltaY));
-        
-        trigger.style.right = newRight + 'px';
-        trigger.style.bottom = newBottom + 'px';
+        applyPosition(startRight + deltaX, startBottom + deltaY);
     });
 
     document.addEventListener('mouseup', () => {
@@ -79,10 +83,17 @@ export function createTrigger(currentTree) {
     try {
         const savedPos = JSON.parse(localStorage.getItem('ide-trigger-pos'));
         if (savedPos) {
-            trigger.style.right = savedPos.right + 'px';
-            trigger.style.bottom = savedPos.bottom + 'px';
+            applyPosition(savedPos.right, savedPos.bottom);
+        } else {
+            applyPosition(20, 20);
         }
-    } catch (e) {}
+    } catch (e) {
+        applyPosition(20, 20);
+    }
+
+    window.addEventListener('resize', () => {
+        applyPosition(parseInt(trigger.style.right) || 20, parseInt(trigger.style.bottom) || 20);
+    });
 
     // hover 效果：简单的缩放，不展开文字
     trigger.onmouseover = () => {
