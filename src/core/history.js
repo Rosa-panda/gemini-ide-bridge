@@ -1,5 +1,10 @@
 /**
- * 文件历史管理模块 - IndexedDB + 内存双层存储
+ * 文件历史管理模块 - IndexedDB 单层存储
+ * 
+ * 移除了 memoryCache 层：
+ * - IndexedDB 读取本就在 1ms 内，内存缓存收益极小
+ * - memoryCache 会遮蔽刷新前存入 IndexedDB 的历史记录（致命 Bug）
+ * - 使用 dbPromise 确保 _initDB 只执行一次，消除并发竞争
  */
 
 const DB_NAME = 'ide-bridge-history';
@@ -10,8 +15,8 @@ const MAX_HISTORY_PER_FILE = 10;
 class FileHistory {
     constructor() {
         this.db = null;
-        this.memoryCache = new Map();
-        this._initDB();
+        // 用 Promise 链确保 _initDB 只执行一次，消除并发竞争隐患
+        this.dbPromise = this._initDB();
     }
 
     async _initDB() {
@@ -41,10 +46,9 @@ class FileHistory {
     }
 
     async _ensureDB() {
-        if (!this.db) {
-            await this._initDB();
-        }
-        return this.db;
+        // 若 db 已就绪直接返回，否则等待初始化 Promise（不重复初始化）
+        if (this.db) return this.db;
+        return this.dbPromise;
     }
 
     async saveVersion(filePath, content) {
@@ -53,15 +57,6 @@ class FileHistory {
             content,
             timestamp: Date.now()
         };
-
-        if (!this.memoryCache.has(filePath)) {
-            this.memoryCache.set(filePath, []);
-        }
-        const memList = this.memoryCache.get(filePath);
-        memList.push(record);
-        if (memList.length > MAX_HISTORY_PER_FILE) {
-            memList.shift();
-        }
 
         try {
             const db = await this._ensureDB();
@@ -76,10 +71,7 @@ class FileHistory {
     }
 
     async getVersions(filePath) {
-        if (this.memoryCache.has(filePath)) {
-            return [...this.memoryCache.get(filePath)].reverse();
-        }
-
+        // 直接从 IndexedDB 读取，不经过内存缓存，保证数据实时准确
         try {
             const db = await this._ensureDB();
             return new Promise((resolve) => {
@@ -137,8 +129,6 @@ class FileHistory {
     }
 
     async clearFileHistory(filePath) {
-        this.memoryCache.delete(filePath);
-        
         try {
             const db = await this._ensureDB();
             const tx = db.transaction(STORE_NAME, 'readwrite');

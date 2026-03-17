@@ -153,7 +153,8 @@ export function cleanContent(text) {
  */
 export function parseMultipleFiles(text) {
     const files = [];
-    const filePattern = /(?:\/\/|#|\/\*)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
+    // 增加对 HTML/XML 注释格式 <!-- FILE: path --> 的兼容
+    const filePattern = /(?:\/\/|#|\/\*|<!--)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
     
     const matches = [];
     let match;
@@ -173,7 +174,7 @@ export function parseMultipleFiles(text) {
         
         let blockText = text.substring(current.index, nextIndex);
         blockText = blockText
-            .replace(/^(?:\/\/|#|\/\*)\s*FILE:.*(?:\r?\n|$)/m, '')
+            .replace(/^(?:\/\/|#|\/\*|<!--)\s*FILE:.*(?:\r?\n|$)/m, '')
             .trim();
         
         if (current.path && blockText) {

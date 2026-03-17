@@ -38,7 +38,7 @@ export function showHistoryDialog(filePath) {
         backdrop.id = 'ide-history-backdrop';
         Object.assign(backdrop.style, {
             position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.5)',
-            zIndex: '2147483648', animation: 'ideFadeIn 0.2s ease-out'
+            zIndex: '2147483600', animation: 'ideFadeIn 0.2s ease-out'
         });
         
         const closeAll = () => { backdrop.remove(); dialog.remove(); resolve(null); };
@@ -50,7 +50,7 @@ export function showHistoryDialog(filePath) {
             position: 'fixed', top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
             background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
-            borderRadius: '12px', zIndex: '2147483649',
+            borderRadius: '12px', zIndex: '2147483601',
             width: '400px', maxHeight: '60vh',
             display: 'flex', flexDirection: 'column',
             boxShadow: '0 20px 50px rgba(0,0,0,0.5)', animation: 'ideScaleIn 0.2s ease-out',
@@ -191,7 +191,7 @@ export function showHistoryDiff(filePath, version, currentContent) {
     const backdrop = document.createElement('div');
     Object.assign(backdrop.style, {
         position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(4px)', zIndex: '2147483650',
+        backdropFilter: 'blur(4px)', zIndex: '2147483602',
         animation: 'ideFadeIn 0.2s ease-out'
     });
     
@@ -206,7 +206,7 @@ export function showHistoryDiff(filePath, version, currentContent) {
         width: '90vw', height: '85vh',
         background: 'var(--ide-bg)', border: '1px solid var(--ide-border)',
         borderRadius: '12px', display: 'flex', flexDirection: 'column',
-        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', zIndex: '2147483651',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', zIndex: '2147483603',
         animation: 'ideScaleIn 0.2s ease-out',
         overflow: 'hidden'  // 防止内容溢出
     });
@@ -404,9 +404,11 @@ export function showHistoryDiff(filePath, version, currentContent) {
                 rightCodeDiv.style.fontStyle = 'italic';
                 rightCodeDiv.style.backgroundColor = colors.emptyBg;
             } else {
-                // 连续 delete，右边不添加任何内容
-                rightLineDiv.style.display = 'none';
-                rightCodeDiv.style.display = 'none';
+                // 连续 delete，右边占位以保证物理高度绝对对齐，避免行错位 Bug
+                rightLineDiv.textContent = '\u00A0'; // 不换行空格，防止空白折叠导致高度塔陌
+                rightCodeDiv.textContent = '\u00A0';
+                rightLineDiv.style.visibility = 'hidden';
+                rightCodeDiv.style.visibility = 'hidden';
             }
             lastWasDelete = true;
             lastWasInsert = false;
@@ -427,9 +429,11 @@ export function showHistoryDiff(filePath, version, currentContent) {
                 leftCodeDiv.style.fontStyle = 'italic';
                 leftCodeDiv.style.backgroundColor = colors.emptyBg;
             } else {
-                // 连续 insert，左边不添加任何内容
-                leftLineDiv.style.display = 'none';
-                leftCodeDiv.style.display = 'none';
+                // 连续 insert，左边占位以保证物理高度绝对对齐，避免行错位 Bug
+                leftLineDiv.textContent = '\u00A0'; // 不换行空格，防止空白折叠导致高度塔陌
+                leftCodeDiv.textContent = '\u00A0';
+                leftLineDiv.style.visibility = 'hidden';
+                leftCodeDiv.style.visibility = 'hidden';
             }
             lastWasInsert = true;
             lastWasDelete = false;

@@ -196,6 +196,9 @@ class FileWatcher {
             const pathsToCheck = Array.from(this.watchedDirs.keys());
             
             for (const path of pathsToCheck) {
+                // 优化：跳过未展开的深层目录，避免大型项目（如 node_modules）无意义的全量 I/O 轮询
+                if (path !== '' && !this.expandedPaths.has(path)) continue;
+
                 const dirHandle = this.watchedDirs.get(path);
                 if (!dirHandle) continue;
                 
@@ -224,6 +227,8 @@ class FileWatcher {
     async _checkDirectory(dirHandle, basePath) {
         const changes = [];
         const currentEntries = new Set();
+        // 收集待执行的并发任务
+        const pendingTasks = [];
         
         try {
             for await (const entry of dirHandle.values()) {
@@ -231,37 +236,35 @@ class FileWatcher {
                 currentEntries.add(entryPath);
                 
                 if (entry.kind === 'file') {
-                    try {
-                        const file = await entry.getFile();
-                        const cached = this.fileCache.get(entryPath);
-                        
-                        if (!cached) {
-                            // 新文件
-                            this.fileCache.set(entryPath, {
-                                lastModified: file.lastModified,
-                                size: file.size
-                            });
-                            changes.push({ path: entryPath, type: 'add' });
-                        } else if (cached.lastModified !== file.lastModified || 
-                                   cached.size !== file.size) {
-                            // 文件已修改
-                            this.fileCache.set(entryPath, {
-                                lastModified: file.lastModified,
-                                size: file.size
-                            });
-                            changes.push({ path: entryPath, type: 'modify' });
+                    // 收集异步任务，打破 for-await 引起的严格串行 I/O 阻塞
+                    pendingTasks.push(async () => {
+                        try {
+                            const file = await entry.getFile();
+                            const cached = this.fileCache.get(entryPath);
+                            
+                            if (!cached) {
+                                this.fileCache.set(entryPath, { lastModified: file.lastModified, size: file.size });
+                                changes.push({ path: entryPath, type: 'add' });
+                            } else if (cached.lastModified !== file.lastModified || cached.size !== file.size) {
+                                this.fileCache.set(entryPath, { lastModified: file.lastModified, size: file.size });
+                                changes.push({ path: entryPath, type: 'modify' });
+                            }
+                        } catch (e) {
+                            console.warn('[Watcher] 无法读取文件:', entryPath, e.message);
                         }
-                    } catch (e) {
-                        // 文件可能被删除或无法访问
-                        console.warn('[Watcher] 无法读取文件:', entryPath, e.message);
-                    }
+                    });
                 } else if (entry.kind === 'directory') {
-                    // 检查目录是否是新增的
                     if (!this.fileCache.has(entryPath)) {
                         this.fileCache.set(entryPath, { isDir: true });
                         changes.push({ path: entryPath, type: 'add', isDir: true });
                     }
                 }
+            }
+            
+            // 并发执行文件属性获取任务（每批 20 个，避免同时打开太多文件句柄）
+            const PARALLEL_LIMIT = 20;
+            for (let i = 0; i < pendingTasks.length; i += PARALLEL_LIMIT) {
+                await Promise.all(pendingTasks.slice(i, i + PARALLEL_LIMIT).map(t => t()));
             }
             
             // 检查删除的文件/目录

@@ -1,6 +1,6 @@
 /**
- * Gemini IDE Bridge Core (V0.0.5)
- * 自动构建于 2026-01-28T13:23:05.072Z
+ * Gemini IDE Bridge Core (V0.0.6)
+ * 自动构建于 2026-03-17T02:04:09.017Z
  */
 var IDE_BRIDGE = (() => {
   var __defProp = Object.defineProperty;
@@ -37,8 +37,7 @@ var IDE_BRIDGE = (() => {
   var FileHistory = class {
     constructor() {
       this.db = null;
-      this.memoryCache = /* @__PURE__ */ new Map();
-      this._initDB();
+      this.dbPromise = this._initDB();
     }
     async _initDB() {
       return new Promise((resolve, reject) => {
@@ -63,10 +62,8 @@ var IDE_BRIDGE = (() => {
       });
     }
     async _ensureDB() {
-      if (!this.db) {
-        await this._initDB();
-      }
-      return this.db;
+      if (this.db) return this.db;
+      return this.dbPromise;
     }
     async saveVersion(filePath, content) {
       const record = {
@@ -74,14 +71,6 @@ var IDE_BRIDGE = (() => {
         content,
         timestamp: Date.now()
       };
-      if (!this.memoryCache.has(filePath)) {
-        this.memoryCache.set(filePath, []);
-      }
-      const memList = this.memoryCache.get(filePath);
-      memList.push(record);
-      if (memList.length > MAX_HISTORY_PER_FILE) {
-        memList.shift();
-      }
       try {
         const db = await this._ensureDB();
         const tx = db.transaction(STORE_NAME, "readwrite");
@@ -93,9 +82,6 @@ var IDE_BRIDGE = (() => {
       }
     }
     async getVersions(filePath) {
-      if (this.memoryCache.has(filePath)) {
-        return [...this.memoryCache.get(filePath)].reverse();
-      }
       try {
         const db = await this._ensureDB();
         return new Promise((resolve) => {
@@ -146,7 +132,6 @@ var IDE_BRIDGE = (() => {
       }
     }
     async clearFileHistory(filePath) {
-      this.memoryCache.delete(filePath);
       try {
         const db = await this._ensureDB();
         const tx = db.transaction(STORE_NAME, "readwrite");
@@ -314,6 +299,7 @@ var IDE_BRIDGE = (() => {
         const changes = [];
         const pathsToCheck = Array.from(this.watchedDirs.keys());
         for (const path of pathsToCheck) {
+          if (path !== "" && !this.expandedPaths.has(path)) continue;
           const dirHandle = this.watchedDirs.get(path);
           if (!dirHandle) continue;
           const dirChanges = await this._checkDirectory(dirHandle, path);
@@ -336,36 +322,37 @@ var IDE_BRIDGE = (() => {
     async _checkDirectory(dirHandle, basePath) {
       const changes = [];
       const currentEntries = /* @__PURE__ */ new Set();
+      const pendingTasks = [];
       try {
         for await (const entry of dirHandle.values()) {
           const entryPath = basePath ? `${basePath}/${entry.name}` : entry.name;
           currentEntries.add(entryPath);
           if (entry.kind === "file") {
-            try {
-              const file = await entry.getFile();
-              const cached = this.fileCache.get(entryPath);
-              if (!cached) {
-                this.fileCache.set(entryPath, {
-                  lastModified: file.lastModified,
-                  size: file.size
-                });
-                changes.push({ path: entryPath, type: "add" });
-              } else if (cached.lastModified !== file.lastModified || cached.size !== file.size) {
-                this.fileCache.set(entryPath, {
-                  lastModified: file.lastModified,
-                  size: file.size
-                });
-                changes.push({ path: entryPath, type: "modify" });
+            pendingTasks.push(async () => {
+              try {
+                const file = await entry.getFile();
+                const cached = this.fileCache.get(entryPath);
+                if (!cached) {
+                  this.fileCache.set(entryPath, { lastModified: file.lastModified, size: file.size });
+                  changes.push({ path: entryPath, type: "add" });
+                } else if (cached.lastModified !== file.lastModified || cached.size !== file.size) {
+                  this.fileCache.set(entryPath, { lastModified: file.lastModified, size: file.size });
+                  changes.push({ path: entryPath, type: "modify" });
+                }
+              } catch (e) {
+                console.warn("[Watcher] \u65E0\u6CD5\u8BFB\u53D6\u6587\u4EF6:", entryPath, e.message);
               }
-            } catch (e) {
-              console.warn("[Watcher] \u65E0\u6CD5\u8BFB\u53D6\u6587\u4EF6:", entryPath, e.message);
-            }
+            });
           } else if (entry.kind === "directory") {
             if (!this.fileCache.has(entryPath)) {
               this.fileCache.set(entryPath, { isDir: true });
               changes.push({ path: entryPath, type: "add", isDir: true });
             }
           }
+        }
+        const PARALLEL_LIMIT = 20;
+        for (let i = 0; i < pendingTasks.length; i += PARALLEL_LIMIT) {
+          await Promise.all(pendingTasks.slice(i, i + PARALLEL_LIMIT).map((t) => t()));
         }
         for (const [cachedPath, meta] of this.fileCache) {
           if (this._getParentPath(cachedPath) === basePath) {
@@ -469,7 +456,10 @@ var IDE_BRIDGE = (() => {
     ".cache",
     "coverage",
     ".env",
-    ".gitkeep"
+    ".gitkeep",
+    "venv",
+    ".venv"
+    // Python 虚拟环境，动辄数万文件，必须忽略
   ]);
   var FileSystem = class {
     constructor() {
@@ -807,7 +797,7 @@ var IDE_BRIDGE = (() => {
   }
   function parseMultipleFiles(text) {
     const files = [];
-    const filePattern = /(?:\/\/|#|\/\*)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
+    const filePattern = /(?:\/\/|#|\/\*|<!--)\s*FILE:\s*\[?(.+?)\]?(?:\s*\[OVERWRITE\])?\s*(?:\*\/|-->)?$/gm;
     const matches = [];
     let match;
     while ((match = filePattern.exec(text)) !== null) {
@@ -822,7 +812,7 @@ var IDE_BRIDGE = (() => {
       const current = matches[i];
       const nextIndex = i + 1 < matches.length ? matches[i + 1].index : text.length;
       let blockText = text.substring(current.index, nextIndex);
-      blockText = blockText.replace(/^(?:\/\/|#|\/\*)\s*FILE:.*(?:\r?\n|$)/m, "").trim();
+      blockText = blockText.replace(/^(?:\/\/|#|\/\*|<!--)\s*FILE:.*(?:\r?\n|$)/m, "").trim();
       if (current.path && blockText) {
         files.push({
           path: current.path,
@@ -866,14 +856,14 @@ var IDE_BRIDGE = (() => {
   var RE_CRLF = /\r\n/g;
   var RE_CR = /\r/g;
   var RE_ZERO_WIDTH = /[\u200B-\u200D\uFEFF]/g;
-  var RE_LEADING_SPACE = /^(\s*)/;
   var RE_TAB = /\t/g;
   function getLogicSignature(code) {
     return code.replace(RE_CRLF, "\n").replace(RE_CR, "\n").split("\n").map((line, index) => {
-      const cleanLine = line.replace(RE_ZERO_WIDTH, "").replace(/\s+$/, "");
-      const trimmed = cleanLine.trim();
-      const indentMatch = cleanLine.match(RE_LEADING_SPACE);
-      const indentStr = indentMatch ? indentMatch[1].replace(RE_TAB, "    ") : "";
+      const cleanLine = line.replace(RE_ZERO_WIDTH, "").trimEnd();
+      if (!cleanLine) return { content: "", indent: 0, originalIndex: index };
+      const trimmed = cleanLine.trimStart();
+      const indentLen = cleanLine.length - trimmed.length;
+      const indentStr = indentLen > 0 ? cleanLine.substring(0, indentLen).replace(RE_TAB, "    ") : "";
       return {
         content: trimmed,
         indent: indentStr.length,
@@ -2308,7 +2298,7 @@ ${structure}\`\`\``;
         inset: "0",
         background: "rgba(0, 0, 0, 0.6)",
         backdropFilter: "blur(4px)",
-        zIndex: "2147483648",
+        zIndex: "2147483600",
         animation: "ideFadeIn 0.2s ease-out"
       });
       const dialog = document.createElement("div");
@@ -2322,7 +2312,7 @@ ${structure}\`\`\``;
         color: "var(--ide-text)",
         border: "1px solid var(--ide-border)",
         borderRadius: "12px",
-        zIndex: "2147483649",
+        zIndex: "2147483601",
         width: "90vw",
         maxWidth: "1400px",
         height: "85vh",
@@ -2480,9 +2470,6 @@ ${structure}\`\`\``;
         border: "1px solid var(--ide-border)",
         borderRadius: "8px"
       });
-      const oldLines = oldText.split("\n");
-      const newLines = newText.split("\n");
-      const lineDiffs = computeLineDiff(oldLines, newLines);
       const colors = getDiffColors(detectTheme());
       const createSidePanel = (side, mode) => {
         const panel = document.createElement("div");
@@ -2569,11 +2556,13 @@ ${structure}\`\`\``;
           codeArea.addEventListener("keydown", (e) => {
             if (e.key === "Tab" && !e.shiftKey) {
               e.preventDefault();
+              if (window.getSelection().toString().includes("\n")) return;
               document.execCommand("insertText", false, "    ");
             }
             if (e.key === "Tab" && e.shiftKey) {
               e.preventDefault();
               const sel = window.getSelection();
+              if (sel.toString().includes("\n")) return;
               if (sel.rangeCount) {
                 const range = sel.getRangeAt(0);
                 const text = codeArea.textContent;
@@ -2674,19 +2663,20 @@ ${selectedText}
       };
       const updateLineNumbers = (lineNumbersEl, content, baseLineNum) => {
         const lines = content.split("\n");
-        while (lineNumbersEl.firstChild) {
-          lineNumbersEl.removeChild(lineNumbersEl.firstChild);
-        }
+        lineNumbersEl.replaceChildren();
+        const fragment = document.createDocumentFragment();
         lines.forEach((_, idx) => {
           const lineDiv = document.createElement("div");
           lineDiv.textContent = String(baseLineNum + idx);
-          lineNumbersEl.appendChild(lineDiv);
+          fragment.appendChild(lineDiv);
         });
+        lineNumbersEl.appendChild(fragment);
       };
       const renderContent = (mode) => {
-        while (diffBody.firstChild) {
-          diffBody.removeChild(diffBody.firstChild);
-        }
+        const oldLines = oldText.split("\n");
+        const newLines = editedContent.split("\n");
+        const lineDiffs = computeLineDiff(oldLines, newLines);
+        diffBody.replaceChildren();
         const leftPanel = createSidePanel("left", mode);
         const rightPanel = createSidePanel("right", mode);
         if (mode === "diff") {
@@ -2694,6 +2684,10 @@ ${selectedText}
           let rightLineNum = startLine;
           let lastWasInsert = false;
           let lastWasDelete = false;
+          const leftLineFrag = document.createDocumentFragment();
+          const rightLineFrag = document.createDocumentFragment();
+          const leftCodeFrag = document.createDocumentFragment();
+          const rightCodeFrag = document.createDocumentFragment();
           lineDiffs.forEach((diff) => {
             const leftLineDiv = document.createElement("div");
             const rightLineDiv = document.createElement("div");
@@ -2722,8 +2716,10 @@ ${selectedText}
                 rightCodeDiv.style.fontStyle = "italic";
                 rightCodeDiv.style.backgroundColor = colors.emptyBg;
               } else {
-                rightLineDiv.style.display = "none";
-                rightCodeDiv.style.display = "none";
+                rightLineDiv.textContent = "\xA0";
+                rightCodeDiv.textContent = "\xA0";
+                rightLineDiv.style.visibility = "hidden";
+                rightCodeDiv.style.visibility = "hidden";
               }
               lastWasDelete = true;
               lastWasInsert = false;
@@ -2741,8 +2737,10 @@ ${selectedText}
                 leftCodeDiv.style.fontStyle = "italic";
                 leftCodeDiv.style.backgroundColor = colors.emptyBg;
               } else {
-                leftLineDiv.style.display = "none";
-                leftCodeDiv.style.display = "none";
+                leftLineDiv.textContent = "\xA0";
+                leftCodeDiv.textContent = "\xA0";
+                leftLineDiv.style.visibility = "hidden";
+                leftCodeDiv.style.visibility = "hidden";
               }
               lastWasInsert = true;
               lastWasDelete = false;
@@ -2757,14 +2755,20 @@ ${selectedText}
               lastWasInsert = false;
               lastWasDelete = false;
             }
-            leftPanel.lineNumbers.appendChild(leftLineDiv);
-            leftPanel.codeArea.appendChild(leftCodeDiv);
-            rightPanel.lineNumbers.appendChild(rightLineDiv);
-            rightPanel.codeArea.appendChild(rightCodeDiv);
+            leftLineFrag.appendChild(leftLineDiv);
+            leftCodeFrag.appendChild(leftCodeDiv);
+            rightLineFrag.appendChild(rightLineDiv);
+            rightCodeFrag.appendChild(rightCodeDiv);
           });
+          leftPanel.lineNumbers.appendChild(leftLineFrag);
+          leftPanel.codeArea.appendChild(leftCodeFrag);
+          rightPanel.lineNumbers.appendChild(rightLineFrag);
+          rightPanel.codeArea.appendChild(rightCodeFrag);
         } else {
           let leftLineNum = startLine;
           let lastWasInsert = false;
+          const leftLineFrag = document.createDocumentFragment();
+          const leftCodeFrag = document.createDocumentFragment();
           lineDiffs.forEach((diff) => {
             const leftLineDiv = document.createElement("div");
             const leftCodeDiv = document.createElement("div");
@@ -2789,8 +2793,10 @@ ${selectedText}
                 leftCodeDiv.style.fontStyle = "italic";
                 leftCodeDiv.style.backgroundColor = colors.emptyBg;
               } else {
-                leftLineDiv.style.display = "none";
-                leftCodeDiv.style.display = "none";
+                leftLineDiv.textContent = "\xA0";
+                leftCodeDiv.textContent = "\xA0";
+                leftLineDiv.style.visibility = "hidden";
+                leftCodeDiv.style.visibility = "hidden";
               }
               lastWasInsert = true;
             } else if (diff.type === "modify") {
@@ -2800,9 +2806,11 @@ ${selectedText}
               leftCodeDiv.style.backgroundColor = colors.deleteBg;
               lastWasInsert = false;
             }
-            leftPanel.lineNumbers.appendChild(leftLineDiv);
-            leftPanel.codeArea.appendChild(leftCodeDiv);
+            leftLineFrag.appendChild(leftLineDiv);
+            leftCodeFrag.appendChild(leftCodeDiv);
           });
+          leftPanel.lineNumbers.appendChild(leftLineFrag);
+          leftPanel.codeArea.appendChild(leftCodeFrag);
           rightPanel.codeArea.textContent = editedContent;
           updateLineNumbers(rightPanel.lineNumbers, editedContent, startLine);
         }
@@ -2973,7 +2981,7 @@ ${editedContent}
         position: "fixed",
         inset: "0",
         background: "rgba(0,0,0,0.5)",
-        zIndex: "2147483648",
+        zIndex: "2147483600",
         animation: "ideFadeIn 0.2s ease-out"
       });
       const closeAll = () => {
@@ -2992,7 +3000,7 @@ ${editedContent}
         background: "var(--ide-bg)",
         border: "1px solid var(--ide-border)",
         borderRadius: "12px",
-        zIndex: "2147483649",
+        zIndex: "2147483601",
         width: "400px",
         maxHeight: "60vh",
         display: "flex",
@@ -3140,7 +3148,7 @@ ${editedContent}
       inset: "0",
       background: "rgba(0,0,0,0.6)",
       backdropFilter: "blur(4px)",
-      zIndex: "2147483650",
+      zIndex: "2147483602",
       animation: "ideFadeIn 0.2s ease-out"
     });
     const closeAll = () => {
@@ -3162,7 +3170,7 @@ ${editedContent}
       display: "flex",
       flexDirection: "column",
       boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-      zIndex: "2147483651",
+      zIndex: "2147483603",
       animation: "ideScaleIn 0.2s ease-out",
       overflow: "hidden"
       // 防止内容溢出
@@ -3352,8 +3360,10 @@ ${editedContent}
           rightCodeDiv.style.fontStyle = "italic";
           rightCodeDiv.style.backgroundColor = colors.emptyBg;
         } else {
-          rightLineDiv.style.display = "none";
-          rightCodeDiv.style.display = "none";
+          rightLineDiv.textContent = "\xA0";
+          rightCodeDiv.textContent = "\xA0";
+          rightLineDiv.style.visibility = "hidden";
+          rightCodeDiv.style.visibility = "hidden";
         }
         lastWasDelete = true;
         lastWasInsert = false;
@@ -3371,8 +3381,10 @@ ${editedContent}
           leftCodeDiv.style.fontStyle = "italic";
           leftCodeDiv.style.backgroundColor = colors.emptyBg;
         } else {
-          leftLineDiv.style.display = "none";
-          leftCodeDiv.style.display = "none";
+          leftLineDiv.textContent = "\xA0";
+          leftCodeDiv.textContent = "\xA0";
+          leftLineDiv.style.visibility = "hidden";
+          leftCodeDiv.style.visibility = "hidden";
         }
         lastWasInsert = true;
         lastWasDelete = false;
@@ -3961,21 +3973,25 @@ ${editedContent}
     if (KEYWORDS[ext]) {
       return ext;
     }
-    return "javascript";
+    return "plaintext";
   }
+  var regexCache = { keyword: {}, literal: {}, builtin: {} };
   function getKeywordRegex(lang) {
+    if (regexCache.keyword[lang]) return regexCache.keyword[lang];
     const kw = KEYWORDS[lang] || KEYWORDS.javascript;
-    return new RegExp(`^(${kw})$`);
+    return regexCache.keyword[lang] = new RegExp(`^(${kw})$`);
   }
   function getLiteralRegex(lang) {
+    if (regexCache.literal[lang]) return regexCache.literal[lang];
     const lit = LITERALS[lang] || LITERALS.javascript || "";
     if (!lit) return null;
-    return new RegExp(`^(${lit})$`);
+    return regexCache.literal[lang] = new RegExp(`^(${lit})$`);
   }
   function getBuiltinRegex(lang) {
+    if (regexCache.builtin[lang]) return regexCache.builtin[lang];
     const builtin = BUILTINS[lang] || BUILTINS.javascript || "";
     if (!builtin) return null;
-    return new RegExp(`^(${builtin})$`);
+    return regexCache.builtin[lang] = new RegExp(`^(${builtin})$`);
   }
   function getLineCommentPrefix(lang) {
     return COMMENT_STYLES.line[lang] || "//";
@@ -4065,7 +4081,10 @@ ${editedContent}
           }
         } else {
           const startIdx = blockComment ? remaining.indexOf(blockComment[0]) : -1;
-          const lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+          let lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+          while (commentPrefix === "//" && lineCommentIdx > 0 && remaining[lineCommentIdx - 1] === ":") {
+            lineCommentIdx = remaining.indexOf(commentPrefix, lineCommentIdx + 2);
+          }
           if (lineCommentIdx !== -1 && (startIdx === -1 || lineCommentIdx < startIdx)) {
             if (lineCommentIdx > 0) {
               const codePart = remaining.slice(0, lineCommentIdx);
@@ -4103,7 +4122,12 @@ ${editedContent}
         span.textContent = token.text;
         target.appendChild(span);
       } else {
-        target.appendChild(document.createTextNode(token.text));
+        const last = target.lastChild;
+        if (last && last.nodeType === Node.TEXT_NODE) {
+          last.nodeValue += token.text;
+        } else {
+          target.appendChild(document.createTextNode(token.text));
+        }
       }
     }
   }
@@ -6337,7 +6361,7 @@ if __name__ == "__main__":
       color: "var(--ide-text-secondary)",
       textAlign: "center"
     });
-    footer.textContent = `V${true ? "0.0.5" : "?"} | \u652F\u6301\u7248\u672C\u56DE\u9000`;
+    footer.textContent = `V${true ? "0.0.6" : "?"} | \u652F\u6301\u7248\u672C\u56DE\u9000`;
     sidebar.appendChild(footer);
     return sidebar;
   }
@@ -7197,5 +7221,5 @@ if (document.body) {
 } else {
     window.onload = () => IDE_BRIDGE.ui.init();
 }
-console.log('%c[IDE Bridge] V0.0.5', 'color: #00ff00; font-size: 14px;');
+console.log('%c[IDE Bridge] V0.0.6', 'color: #00ff00; font-size: 14px;');
 

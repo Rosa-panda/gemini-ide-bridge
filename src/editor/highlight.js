@@ -30,8 +30,8 @@ export function detectLanguage(filename) {
         return ext;
     }
     
-    // 4. 默认 JavaScript
-    return 'javascript';
+    // 4. 默认纯文本，避免 Markdown/TXT 文件被误当成 JS 高亮
+    return 'plaintext';
 }
 
 /**
@@ -86,35 +86,42 @@ export function guessLanguageFromContent(code) {
     // Shell 特征
     if (/^(export |alias |source |echo |if \[|for |while |case )/.test(firstLines)) return 'bash';
     
-    return 'javascript';
+    // 内容也无法识别时，回退到纯文本，不误高亮
+    return 'plaintext';
 }
 
 // ============ Tokenizer ============
+
+// 正则缓存闭包：同一语言只编译一次 RegExp
+const regexCache = { keyword: {}, literal: {}, builtin: {} };
 
 /**
  * 获取语言的关键字正则
  */
 function getKeywordRegex(lang) {
+    if (regexCache.keyword[lang]) return regexCache.keyword[lang];
     const kw = KEYWORDS[lang] || KEYWORDS.javascript;
-    return new RegExp(`^(${kw})$`);
+    return (regexCache.keyword[lang] = new RegExp(`^(${kw})$`));
 }
 
 /**
  * 获取语言的字面量正则
  */
 function getLiteralRegex(lang) {
+    if (regexCache.literal[lang]) return regexCache.literal[lang];
     const lit = LITERALS[lang] || LITERALS.javascript || '';
     if (!lit) return null;
-    return new RegExp(`^(${lit})$`);
+    return (regexCache.literal[lang] = new RegExp(`^(${lit})$`));
 }
 
 /**
  * 获取语言的内置函数正则
  */
 function getBuiltinRegex(lang) {
+    if (regexCache.builtin[lang]) return regexCache.builtin[lang];
     const builtin = BUILTINS[lang] || BUILTINS.javascript || '';
     if (!builtin) return null;
-    return new RegExp(`^(${builtin})$`);
+    return (regexCache.builtin[lang] = new RegExp(`^(${builtin})$`));
 }
 
 
@@ -252,7 +259,14 @@ export function highlightToDOM(code, language, container) {
             } else {
                 // 不在注释中，寻找多行注释开始符
                 const startIdx = blockComment ? remaining.indexOf(blockComment[0]) : -1;
-                const lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+                let lineCommentIdx = commentPrefix ? remaining.indexOf(commentPrefix) : -1;
+                
+                // 极简修复：规避 URL 中的 https:// 被识别为单行注释导致后续高亮错乱
+                // 判断条件：// 前面紧跟着冒号 :，则这是 URL 的一部分，跳过继续往后找
+                // 改用 while 循环，一已处理同一行内存在多个 URL 的情况（如 "http://a", "https://b"; // 注释）
+                while (commentPrefix === '//' && lineCommentIdx > 0 && remaining[lineCommentIdx - 1] === ':') {
+                    lineCommentIdx = remaining.indexOf(commentPrefix, lineCommentIdx + 2);
+                }
                 
                 // 检查单行注释是否更早出现（优先级最高）
                 if (lineCommentIdx !== -1 && (startIdx === -1 || lineCommentIdx < startIdx)) {
@@ -302,7 +316,13 @@ export function highlightToDOM(code, language, container) {
             span.textContent = token.text;
             target.appendChild(span);
         } else {
-            target.appendChild(document.createTextNode(token.text));
+            // 优化：合并相邻纯文本节点，将编辑器渲染时的 DOM 量级直接砍半
+            const last = target.lastChild;
+            if (last && last.nodeType === Node.TEXT_NODE) {
+                last.nodeValue += token.text;
+            } else {
+                target.appendChild(document.createTextNode(token.text));
+            }
         }
     }
 }

@@ -8,7 +8,8 @@ import { watcher } from './watcher.js';
 const IGNORE_DIRS = new Set([
     'node_modules', '.git', 'dist', '.DS_Store', '.idea', 
     '.vscode', '__pycache__', '.next', 'build', '.cache',
-    'coverage', '.env', '.gitkeep'
+    'coverage', '.env', '.gitkeep',
+    'venv', '.venv'  // Python 虚拟环境，动辄数万文件，必须忽略
 ]);
 
 class FileSystem {

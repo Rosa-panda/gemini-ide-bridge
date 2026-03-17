@@ -115,7 +115,7 @@ gemini-ide-bridge/
     │
     ├── core/              # 核心功能模块
     │   ├── fs.js          # 文件系统操作（读写、创建、删除）
-    │   ├── history.js     # 文件历史版本管理（IndexedDB + 内存缓存）
+    │   ├── history.js     # 文件历史版本管理（IndexedDB 单层存储，无内存缓存遮蔽）
     │   ├── parser.js      # AI 输出解析（SEARCH/REPLACE、FILE:、DELETE）
     │   ├── state.js       # 补丁应用状态持久化（localStorage）
     │   ├── deps.js        # 依赖分析（JS/Python/C 的 import 解析）
@@ -177,11 +177,11 @@ gemini-ide-bridge/
 | 文件 | 功能 |
 |------|------|
 | `fs.js` | File System Access API 封装，文件读写、目录扫描 |
-| `history.js` | 文件修改历史，IndexedDB 持久化 + 内存缓存双层存储 |
+| `history.js` | 文件修改历史，IndexedDB 单层存储（已移除内存缓存层，修复跨会话历史遮蔽 Bug） |
 | `parser.js` | 解析 AI 输出的 SEARCH/REPLACE、FILE:、DELETE 指令 |
 | `state.js` | 记录已应用的补丁，防止重复应用 |
 | `deps.js` | 分析文件依赖关系，支持 JS/TS/Python/C++ |
-| `watcher.js` | 文件变化监听（轮询 + 页面可见性 + requestIdleCallback + 防抖） |
+| `watcher.js` | 文件变化监听（轮询 + 页面可见性 + requestIdleCallback + 防抖 + **展开目录剪枝 + Promise.all 并发 I/O**） |
 | `skeleton.js` | 项目骨架图生成，基于 AST 思想提取代码结构 |
 
 ### core/patcher/ - 补丁引擎

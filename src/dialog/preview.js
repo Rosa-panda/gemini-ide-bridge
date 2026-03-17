@@ -97,7 +97,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             position: 'fixed', inset: '0', 
             background: 'rgba(0, 0, 0, 0.6)', 
             backdropFilter: 'blur(4px)',
-            zIndex: '2147483648',
+            zIndex: '2147483600',
             animation: 'ideFadeIn 0.2s ease-out'
         });
 
@@ -110,7 +110,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             color: 'var(--ide-text)',
             border: '1px solid var(--ide-border)',
             borderRadius: '12px', 
-            zIndex: '2147483649',
+            zIndex: '2147483601',
             width: '90vw', maxWidth: '1400px', height: '85vh',
             display: 'flex', flexDirection: 'column',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
@@ -277,11 +277,6 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
             borderRadius: '8px'
         });
 
-        // 计算行级差异
-        const oldLines = oldText.split('\n');
-        const newLines = newText.split('\n');
-        const lineDiffs = computeLineDiff(oldLines, newLines);
-        
         // 获取主题配色
         const colors = getDiffColors(detectTheme());
 
@@ -385,6 +380,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                     // Tab 键插入空格
                     if (e.key === 'Tab' && !e.shiftKey) {
                         e.preventDefault();
+                        if (window.getSelection().toString().includes('\n')) return; // 防误触：跨行选中不处理，避免选中内容被替换
                         document.execCommand('insertText', false, '    ');
                     }
                     // Shift+Tab 反缩进（删除行首 4 空格）
@@ -392,6 +388,7 @@ export function showPreviewDialog(file, oldText, newText, startLine = 1, syntaxE
                         e.preventDefault();
                         // 简单实现：删除光标前的空格
                         const sel = window.getSelection();
+                        if (sel.toString().includes('\n')) return; // 防误触：跨行选中不处理
                         if (sel.rangeCount) {
                             const range = sel.getRangeAt(0);
                             const text = codeArea.textContent;
@@ -513,23 +510,26 @@ ${selectedText}
         // 更新行号的辅助函数
         const updateLineNumbers = (lineNumbersEl, content, baseLineNum) => {
             const lines = content.split('\n');
-            // 清空行号（不使用 innerHTML，避免 Trusted Types 问题）
-            while (lineNumbersEl.firstChild) {
-                lineNumbersEl.removeChild(lineNumbersEl.firstChild);
-            }
+            // 现代 API：极速清空并批量插入节点，避免大量 removeChild 的重排
+            lineNumbersEl.replaceChildren();
+            const fragment = document.createDocumentFragment();
             lines.forEach((_, idx) => {
                 const lineDiv = document.createElement('div');
                 lineDiv.textContent = String(baseLineNum + idx);
-                lineNumbersEl.appendChild(lineDiv);
+                fragment.appendChild(lineDiv);
             });
+            lineNumbersEl.appendChild(fragment);
         };
 
         // 渲染内容的函数
         const renderContent = (mode) => {
+            // 动态计算行级差异：以 editedContent 为新内容，保证编辑后切回 Diff 模式时显示最新对比
+            const oldLines = oldText.split('\n');
+            const newLines = editedContent.split('\n');
+            const lineDiffs = computeLineDiff(oldLines, newLines);
+
             // 清空 diffBody
-            while (diffBody.firstChild) {
-                diffBody.removeChild(diffBody.firstChild);
-            }
+            diffBody.replaceChildren();
             
             const leftPanel = createSidePanel('left', mode);
             const rightPanel = createSidePanel('right', mode);
@@ -538,8 +538,14 @@ ${selectedText}
                 // Diff 模式：左右都渲染 diff 高亮
                 let leftLineNum = startLine;
                 let rightLineNum = startLine;
-                let lastWasInsert = false;  // 追踪上一行是否是 insert
-                let lastWasDelete = false;  // 追踪上一行是否是 delete
+                let lastWasInsert = false;  
+                let lastWasDelete = false;  
+
+                // 使用 DocumentFragment 批量挂载，减少大文件渲染时的 DOM 重排
+                const leftLineFrag = document.createDocumentFragment();
+                const rightLineFrag = document.createDocumentFragment();
+                const leftCodeFrag = document.createDocumentFragment();
+                const rightCodeFrag = document.createDocumentFragment();
 
                 lineDiffs.forEach(diff => {
                     const leftLineDiv = document.createElement('div');
@@ -573,9 +579,11 @@ ${selectedText}
                             rightCodeDiv.style.fontStyle = 'italic';
                             rightCodeDiv.style.backgroundColor = colors.emptyBg;
                         } else {
-                            // 连续 delete，右边不添加任何内容
-                            rightLineDiv.style.display = 'none';
-                            rightCodeDiv.style.display = 'none';
+                            // 连续 delete，右边占位以保证物理高度绝对对齐，避免行错位 Bug
+                            rightLineDiv.textContent = '\u00A0'; // 不换行空格，防止空白折叠指高塔陌
+                            rightCodeDiv.textContent = '\u00A0';
+                            rightLineDiv.style.visibility = 'hidden';
+                            rightCodeDiv.style.visibility = 'hidden';
                         }
                         lastWasDelete = true;
                         lastWasInsert = false;
@@ -596,9 +604,11 @@ ${selectedText}
                             leftCodeDiv.style.fontStyle = 'italic';
                             leftCodeDiv.style.backgroundColor = colors.emptyBg;
                         } else {
-                            // 连续 insert，左边不添加任何内容
-                            leftLineDiv.style.display = 'none';
-                            leftCodeDiv.style.display = 'none';
+                            // 连续 insert，左边占位以保证物理高度绝对对齐，避免行错位 Bug
+                            leftLineDiv.textContent = '\u00A0'; // 不换行空格，防止空白折叠指高塔陌
+                            leftCodeDiv.textContent = '\u00A0';
+                            leftLineDiv.style.visibility = 'hidden';
+                            leftCodeDiv.style.visibility = 'hidden';
                         }
                         lastWasInsert = true;
                         lastWasDelete = false;
@@ -614,15 +624,25 @@ ${selectedText}
                         lastWasDelete = false;
                     }
 
-                    leftPanel.lineNumbers.appendChild(leftLineDiv);
-                    leftPanel.codeArea.appendChild(leftCodeDiv);
-                    rightPanel.lineNumbers.appendChild(rightLineDiv);
-                    rightPanel.codeArea.appendChild(rightCodeDiv);
+                    leftLineFrag.appendChild(leftLineDiv);
+                    leftCodeFrag.appendChild(leftCodeDiv);
+                    rightLineFrag.appendChild(rightLineDiv);
+                    rightCodeFrag.appendChild(rightCodeDiv);
                 });
+
+                // 一次性挂载所有行，避免频繁触发重排
+                leftPanel.lineNumbers.appendChild(leftLineFrag);
+                leftPanel.codeArea.appendChild(leftCodeFrag);
+                rightPanel.lineNumbers.appendChild(rightLineFrag);
+                rightPanel.codeArea.appendChild(rightCodeFrag);
             } else {
                 // 编辑模式：左侧保持 diff 高亮，右侧可编辑
                 let leftLineNum = startLine;
                 let lastWasInsert = false;
+
+                // 使用 DocumentFragment 批量挂载
+                const leftLineFrag = document.createDocumentFragment();
+                const leftCodeFrag = document.createDocumentFragment();
 
                 lineDiffs.forEach(diff => {
                     const leftLineDiv = document.createElement('div');
@@ -650,8 +670,11 @@ ${selectedText}
                             leftCodeDiv.style.fontStyle = 'italic';
                             leftCodeDiv.style.backgroundColor = colors.emptyBg;
                         } else {
-                            leftLineDiv.style.display = 'none';
-                            leftCodeDiv.style.display = 'none';
+                            // 连续 insert，左侧占位以保证行高一致
+                            leftLineDiv.textContent = '\u00A0'; // 不换行空格，防止空白折叠指高塔陌
+                            leftCodeDiv.textContent = '\u00A0';
+                            leftLineDiv.style.visibility = 'hidden';
+                            leftCodeDiv.style.visibility = 'hidden';
                         }
                         lastWasInsert = true;
                     } else if (diff.type === 'modify') {
@@ -662,9 +685,13 @@ ${selectedText}
                         lastWasInsert = false;
                     }
 
-                    leftPanel.lineNumbers.appendChild(leftLineDiv);
-                    leftPanel.codeArea.appendChild(leftCodeDiv);
+                    leftLineFrag.appendChild(leftLineDiv);
+                    leftCodeFrag.appendChild(leftCodeDiv);
                 });
+
+                // 一次性挂载
+                leftPanel.lineNumbers.appendChild(leftLineFrag);
+                leftPanel.codeArea.appendChild(leftCodeFrag);
                 
                 // 右侧可编辑
                 rightPanel.codeArea.textContent = editedContent;

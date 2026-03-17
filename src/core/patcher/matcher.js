@@ -18,12 +18,16 @@ export function getLogicSignature(code) {
                 .replace(RE_CR, '\n')
                 .split('\n')
                 .map((line, index) => {
-                    // 核心优化：只 trimRight，保留逻辑所需的左侧缩进意图
-                    // 但 content 比较时使用全 trim 后的内容
-                    const cleanLine = line.replace(RE_ZERO_WIDTH, '').replace(/\s+$/, '');
-                    const trimmed = cleanLine.trim();
-                    const indentMatch = cleanLine.match(RE_LEADING_SPACE);
-                    const indentStr = indentMatch ? indentMatch[1].replace(RE_TAB, '    ') : '';
+                    // 性能优化：避免正则高频运算，直接利用原生字符串长度差计算缩进
+                    const cleanLine = line.replace(RE_ZERO_WIDTH, '').trimEnd();
+                    if (!cleanLine) return { content: '', indent: 0, originalIndex: index };
+                    
+                    const trimmed = cleanLine.trimStart();
+                    const indentLen = cleanLine.length - trimmed.length;
+                    // 只对有缩进的行做 tab 替换，减少无谓的字符串操作
+                    const indentStr = indentLen > 0
+                        ? cleanLine.substring(0, indentLen).replace(RE_TAB, '    ')
+                        : '';
                     return { 
                         content: trimmed, 
                         indent: indentStr.length,
